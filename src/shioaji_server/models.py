@@ -80,9 +80,9 @@ class SnapshotData(BaseModel):
     volume: int
     total_volume: int
     buy_price: float
-    buy_volume: int
+    buy_volume: float
     sell_price: float
-    sell_volume: int
+    sell_volume: float
     change_price: float
     change_rate: float
     ts: int

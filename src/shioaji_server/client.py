@@ -81,6 +81,11 @@ class ShioajiClient:
         if not self.connected:
             raise RuntimeError("Not connected — call /api/auth/login first")
 
+    async def run_sync(self, fn, *args):
+        """Run a blocking SDK call in the executor to avoid blocking the loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, fn, *args)
+
     def register_callbacks(self, manager: ConnectionManager) -> None:
         """Register Shioaji quote + order callbacks that route to WS manager."""
 

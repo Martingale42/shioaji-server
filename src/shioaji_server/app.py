@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
+from functools import partial
 
 import shioaji as sj
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -10,6 +12,8 @@ from shioaji_server.routes.auth import router as auth_router
 from shioaji_server.routes.contracts import router as contracts_router
 from shioaji_server.routes.market_data import router as market_data_router
 from shioaji_server.ws.manager import ConnectionManager
+
+log = logging.getLogger(__name__)
 
 manager = ConnectionManager()
 
@@ -48,6 +52,27 @@ def _resolve_contract(sj_client: ShioajiClient, code: str):
     raise ValueError(f"Contract {code} not found")
 
 
+def _to_quote_type(quote_type: str) -> sj.constant.QuoteType:
+    if quote_type == "tick":
+        return sj.constant.QuoteType.Tick
+    return sj.constant.QuoteType.BidAsk
+
+
+async def _unsubscribe_orphaned(
+    sj_client: ShioajiClient, orphaned: list[tuple[str, str]],
+) -> None:
+    """Unsubscribe Shioaji quotes for keys with no remaining WS clients."""
+    for code, quote_type in orphaned:
+        try:
+            contract = _resolve_contract(sj_client, code)
+            qt = _to_quote_type(quote_type)
+            await sj_client.run_sync(
+                partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
+            )
+        except Exception:
+            log.warning("Failed to unsubscribe %s/%s", code, quote_type, exc_info=True)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     sj_client = ws.app.state.sj
@@ -58,18 +83,23 @@ async def websocket_endpoint(ws: WebSocket):
             msg = json.loads(text)
             action = msg.get("action")
             code = msg.get("contract_code")
-            quote_type = msg.get("quote_type")  # "tick" or "bidask"
+            quote_type = msg.get("quote_type")
+
+            if not code or quote_type not in ("tick", "bidask"):
+                await ws.send_text(json.dumps({
+                    "type": "error",
+                    "detail": "Missing or invalid contract_code/quote_type",
+                }))
+                continue
 
             if action == "subscribe":
                 is_new = manager.subscribe(ws, code, quote_type)
                 if is_new:
                     contract = _resolve_contract(sj_client, code)
-                    qt = (
-                        sj.constant.QuoteType.Tick
-                        if quote_type == "tick"
-                        else sj.constant.QuoteType.BidAsk
+                    qt = _to_quote_type(quote_type)
+                    await sj_client.run_sync(
+                        partial(sj_client.api.quote.subscribe, contract, quote_type=qt),
                     )
-                    sj_client.api.quote.subscribe(contract, quote_type=qt)
                 await ws.send_text(json.dumps({
                     "type": "subscribed", "code": code, "quote_type": quote_type,
                 }))
@@ -78,15 +108,14 @@ async def websocket_endpoint(ws: WebSocket):
                 is_empty = manager.unsubscribe(ws, code, quote_type)
                 if is_empty:
                     contract = _resolve_contract(sj_client, code)
-                    qt = (
-                        sj.constant.QuoteType.Tick
-                        if quote_type == "tick"
-                        else sj.constant.QuoteType.BidAsk
+                    qt = _to_quote_type(quote_type)
+                    await sj_client.run_sync(
+                        partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
                     )
-                    sj_client.api.quote.unsubscribe(contract, quote_type=qt)
                 await ws.send_text(json.dumps({
                     "type": "unsubscribed", "code": code, "quote_type": quote_type,
                 }))
 
     except WebSocketDisconnect:
-        manager.disconnect(ws)
+        orphaned = manager.disconnect(ws)
+        await _unsubscribe_orphaned(sj_client, orphaned)

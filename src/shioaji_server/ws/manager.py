@@ -23,13 +23,17 @@ class ConnectionManager:
         await ws.accept()
         self.active_connections.append(ws)
 
-    def disconnect(self, ws: WebSocket) -> None:
+    def disconnect(self, ws: WebSocket) -> list[tuple[str, str]]:
+        """Remove client and return orphaned (code, quote_type) keys to unsubscribe."""
         if ws in self.active_connections:
             self.active_connections.remove(ws)
+        orphaned = []
         for key in list(self.subscriptions):
             self.subscriptions[key].discard(ws)
             if not self.subscriptions[key]:
                 del self.subscriptions[key]
+                orphaned.append(key)
+        return orphaned
 
     def subscribe(self, ws: WebSocket, code: str, quote_type: str) -> bool:
         """Returns True if this is a NEW subscription (needs Shioaji subscribe)."""
@@ -61,7 +65,7 @@ class ConnectionManager:
 
     async def _broadcast(self, code: str, quote_type: str, message: str) -> None:
         key = (code, quote_type)
-        targets = self.subscriptions.get(key, set())
+        targets = set(self.subscriptions.get(key, set()))
         dead = []
         for ws in targets:
             try:
@@ -82,7 +86,7 @@ class ConnectionManager:
 
     async def _broadcast_all(self, message: str) -> None:
         dead = []
-        for ws in self.active_connections:
+        for ws in list(self.active_connections):
             try:
                 await ws.send_text(message)
             except Exception:

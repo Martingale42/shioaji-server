@@ -1,3 +1,5 @@
+from functools import partial
+
 from fastapi import APIRouter, HTTPException, Request
 
 from shioaji_server.models import FuturesContract, OptionsContract, StockContract
@@ -44,12 +46,23 @@ def _options_to_dict(contract) -> dict:
     return d
 
 
+def _list_stocks(api) -> list[dict]:
+    return [_stock_to_dict(c) for c in api.Contracts.Stocks]
+
+
+def _list_futures(api) -> list[dict]:
+    return [_futures_to_dict(c) for c in api.Contracts.Futures]
+
+
+def _list_options(api) -> list[dict]:
+    return [_options_to_dict(c) for c in api.Contracts.Options]
+
+
 @router.get("/stocks", response_model=list[StockContract])
 async def list_stocks(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
-    contracts = sj.api.Contracts.Stocks
-    return [_stock_to_dict(c) for exchange in contracts for c in exchange]
+    return await sj.run_sync(_list_stocks, sj.api)
 
 
 @router.get("/stocks/{code}", response_model=StockContract)
@@ -66,13 +79,11 @@ async def get_stock(code: str, request: Request) -> dict:
 async def list_futures(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
-    contracts = sj.api.Contracts.Futures
-    return [_futures_to_dict(c) for category in contracts for c in category]
+    return await sj.run_sync(_list_futures, sj.api)
 
 
 @router.get("/options", response_model=list[OptionsContract])
 async def list_options(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
-    contracts = sj.api.Contracts.Options
-    return [_options_to_dict(c) for category in contracts for c in category]
+    return await sj.run_sync(_list_options, sj.api)

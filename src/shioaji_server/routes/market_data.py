@@ -1,3 +1,5 @@
+from functools import partial
+
 from fastapi import APIRouter, Query, Request
 
 from shioaji_server.models import KBarsResponse, SnapshotData, TicksResponse
@@ -5,15 +7,8 @@ from shioaji_server.models import KBarsResponse, SnapshotData, TicksResponse
 router = APIRouter(prefix="/api/market", tags=["market_data"])
 
 
-@router.get("/snapshots", response_model=list[SnapshotData])
-async def snapshots(
-    request: Request,
-    codes: str = Query(..., description="Comma-separated contract codes, e.g. '2330,2317'"),
-) -> list[dict]:
-    sj = request.app.state.sj
-    sj.require_connected()
-    contracts = [sj.api.Contracts.Stocks[c] for c in codes.split(",")]
-    snaps = sj.api.snapshots(contracts)
+def _fetch_snapshots(api, contracts) -> list[dict]:
+    snaps = api.snapshots(contracts)
     return [
         {
             "code": s.code,
@@ -25,15 +20,50 @@ async def snapshots(
             "volume": int(s.volume),
             "total_volume": int(s.total_volume),
             "buy_price": float(s.buy_price),
-            "buy_volume": int(s.buy_volume),
+            "buy_volume": float(s.buy_volume),
             "sell_price": float(s.sell_price),
-            "sell_volume": int(s.sell_volume),
+            "sell_volume": float(s.sell_volume),
             "change_price": float(s.change_price),
             "change_rate": float(s.change_rate),
             "ts": int(s.ts),
         }
         for s in snaps
     ]
+
+
+def _fetch_ticks(api, contract, date: str) -> dict:
+    t = api.ticks(contract, date=date)
+    return {
+        "ts": list(t.ts),
+        "close": [float(x) for x in t.close],
+        "volume": list(t.volume),
+        "bid_price": [float(x) for x in t.bid_price],
+        "ask_price": [float(x) for x in t.ask_price],
+        "tick_type": list(t.tick_type),
+    }
+
+
+def _fetch_kbars(api, contract, start: str, end: str) -> dict:
+    k = api.kbars(contract, start=start, end=end)
+    return {
+        "ts": list(k.ts),
+        "open": [float(x) for x in k.Open],
+        "high": [float(x) for x in k.High],
+        "low": [float(x) for x in k.Low],
+        "close": [float(x) for x in k.Close],
+        "volume": list(k.Volume),
+    }
+
+
+@router.get("/snapshots", response_model=list[SnapshotData])
+async def snapshots(
+    request: Request,
+    codes: str = Query(..., description="Comma-separated contract codes, e.g. '2330,2317'"),
+) -> list[dict]:
+    sj = request.app.state.sj
+    sj.require_connected()
+    contracts = [sj.api.Contracts.Stocks[c] for c in codes.split(",")]
+    return await sj.run_sync(_fetch_snapshots, sj.api, contracts)
 
 
 @router.get("/ticks", response_model=TicksResponse)
@@ -45,16 +75,9 @@ async def ticks(
     sj = request.app.state.sj
     sj.require_connected()
     contract = sj.api.Contracts.Stocks[code]
-    t = sj.api.ticks(contract, date=date)
-    return {
-        "code": code,
-        "ts": list(t.ts),
-        "close": [float(x) for x in t.close],
-        "volume": list(t.volume),
-        "bid_price": [float(x) for x in t.bid_price],
-        "ask_price": [float(x) for x in t.ask_price],
-        "tick_type": list(t.tick_type),
-    }
+    data = await sj.run_sync(_fetch_ticks, sj.api, contract, date)
+    data["code"] = code
+    return data
 
 
 @router.get("/kbars", response_model=KBarsResponse)
@@ -67,13 +90,6 @@ async def kbars(
     sj = request.app.state.sj
     sj.require_connected()
     contract = sj.api.Contracts.Stocks[code]
-    k = sj.api.kbars(contract, start=start, end=end)
-    return {
-        "code": code,
-        "ts": list(k.ts),
-        "open": [float(x) for x in k.Open],
-        "high": [float(x) for x in k.High],
-        "low": [float(x) for x in k.Low],
-        "close": [float(x) for x in k.Close],
-        "volume": list(k.Volume),
-    }
+    data = await sj.run_sync(_fetch_kbars, sj.api, contract, start, end)
+    data["code"] = code
+    return data
