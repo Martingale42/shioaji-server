@@ -1,4 +1,5 @@
 import asyncio
+import decimal
 import json
 import logging
 from dataclasses import dataclass, field
@@ -79,7 +80,10 @@ class ConnectionManager:
         """Broadcast order update to ALL connected clients (from callback thread)."""
         if self._loop is None:
             return
-        message = json.dumps({"type": "order_update", "event": event_type, "data": data})
+        message = json.dumps(
+            {"type": "order_update", "event": event_type, "data": data},
+            default=lambda o: float(o) if isinstance(o, decimal.Decimal) else str(o),
+        )
         asyncio.run_coroutine_threadsafe(
             self._broadcast_all(message), self._loop
         )

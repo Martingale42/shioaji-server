@@ -35,16 +35,17 @@ def _cancel_order_sync(api, trade):
     api.cancel_order(trade)
 
 
-def _list_trades_sync(api, account):
-    api.update_status(account)
+def _list_trades_sync(api):
+    api.update_status(api.stock_account)
+    api.update_status(api.futopt_account)
     return api.list_trades()
 
 
-def _find_trade(api, trade_id: str):
+def _find_trade_sync(api, trade_id: str):
     for trade in api.list_trades():
         if str(trade.status.id) == trade_id:
             return trade
-    raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
+    return None
 
 
 @router.post("/place")
@@ -83,7 +84,10 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
             account=api.futopt_account,
         )
 
-    trade = await sj_client.run_sync(_place_order_sync, api, contract, order)
+    try:
+        trade = await sj_client.run_sync(_place_order_sync, api, contract, order)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "trade_id": str(trade.status.id),
         "code": req.code,
@@ -98,13 +102,18 @@ async def update_order(req: UpdateOrderRequest, request: Request) -> dict:
     sj_client.require_connected()
     api = sj_client.api
 
-    trade = _find_trade(api, req.trade_id)
+    trade = await sj_client.run_sync(_find_trade_sync, api, req.trade_id)
+    if trade is None:
+        raise HTTPException(status_code=404, detail=f"Trade {req.trade_id} not found")
     kwargs = {}
     if req.price is not None:
         kwargs["price"] = req.price
     if req.quantity is not None:
         kwargs["qty"] = req.quantity
-    await sj_client.run_sync(partial(_update_order_sync, api, trade, **kwargs))
+    try:
+        await sj_client.run_sync(partial(_update_order_sync, api, trade, **kwargs))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "trade_id": req.trade_id}
 
 
@@ -114,8 +123,13 @@ async def cancel_order(req: CancelOrderRequest, request: Request) -> dict:
     sj_client.require_connected()
     api = sj_client.api
 
-    trade = _find_trade(api, req.trade_id)
-    await sj_client.run_sync(_cancel_order_sync, api, trade)
+    trade = await sj_client.run_sync(_find_trade_sync, api, req.trade_id)
+    if trade is None:
+        raise HTTPException(status_code=404, detail=f"Trade {req.trade_id} not found")
+    try:
+        await sj_client.run_sync(_cancel_order_sync, api, trade)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "trade_id": req.trade_id}
 
 
@@ -125,7 +139,7 @@ async def list_trades(request: Request) -> list[dict]:
     sj_client.require_connected()
     api = sj_client.api
 
-    trades = await sj_client.run_sync(_list_trades_sync, api, api.stock_account)
+    trades = await sj_client.run_sync(_list_trades_sync, api)
     return [
         {
             "trade_id": str(t.status.id),
