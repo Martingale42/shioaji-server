@@ -8,6 +8,7 @@ import shioaji as sj
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
 from shioaji_server.client import ShioajiClient
+from shioaji_server.errors import runtime_error_handler
 from shioaji_server.routes.account import router as account_router
 from shioaji_server.routes.auth import router as auth_router
 from shioaji_server.routes.contracts import router as contracts_router
@@ -35,6 +36,7 @@ app.include_router(contracts_router)
 app.include_router(market_data_router)
 app.include_router(orders_router)
 app.include_router(account_router)
+app.add_exception_handler(RuntimeError, runtime_error_handler)
 
 
 @app.get("/api/health")
