@@ -1,5 +1,3 @@
-from functools import partial
-
 from fastapi import APIRouter, HTTPException, Request
 
 from shioaji_server.models import FuturesContract, OptionsContract, StockContract
