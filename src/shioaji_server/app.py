@@ -10,7 +10,7 @@ from shioaji_server.routes.auth import router as auth_router
 async def lifespan(app: FastAPI):
     app.state.sj = ShioajiClient()
     yield
-    app.state.sj.logout()
+    await app.state.sj.logout()
 
 
 app = FastAPI(title="Shioaji Server", version="0.1.0", lifespan=lifespan)

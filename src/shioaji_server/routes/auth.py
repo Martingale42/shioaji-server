@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 async def login(req: LoginRequest, request: Request) -> LoginResponse:
     sj = request.app.state.sj
     try:
-        accounts = sj.login(
+        accounts = await sj.login(
             api_key=req.api_key,
             secret_key=req.secret_key,
             ca_path=req.ca_path,
@@ -23,7 +23,7 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
 
 @router.post("/logout")
 async def logout(request: Request) -> dict:
-    request.app.state.sj.logout()
+    await request.app.state.sj.logout()
     return {"status": "ok"}
 
 
