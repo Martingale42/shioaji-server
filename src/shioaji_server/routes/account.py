@@ -61,6 +61,8 @@ async def list_positions(
 ) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
+    if market != "stock" and sj.api.futopt_account is None:
+        raise HTTPException(status_code=400, detail="No futures/options account available")
     account = sj.api.stock_account if market == "stock" else sj.api.futopt_account
     return await sj.run_sync(_list_positions_sync, sj.api, account)
 
