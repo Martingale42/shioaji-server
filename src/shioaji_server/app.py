@@ -8,9 +8,11 @@ import shioaji as sj
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
 from shioaji_server.client import ShioajiClient
+from shioaji_server.routes.account import router as account_router
 from shioaji_server.routes.auth import router as auth_router
 from shioaji_server.routes.contracts import router as contracts_router
 from shioaji_server.routes.market_data import router as market_data_router
+from shioaji_server.routes.orders import router as orders_router
 from shioaji_server.ws.manager import ConnectionManager
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,8 @@ app = FastAPI(title="Shioaji Server", version="0.1.0", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(contracts_router)
 app.include_router(market_data_router)
+app.include_router(orders_router)
+app.include_router(account_router)
 
 
 @app.get("/api/health")

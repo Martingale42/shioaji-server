@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from pydantic import BaseModel
 
 
@@ -106,3 +108,103 @@ class KBarsResponse(BaseModel):
     low: list[float]
     close: list[float]
     volume: list[int]
+
+
+# --- Orders ---
+
+
+class Action(StrEnum):
+    BUY = "Buy"
+    SELL = "Sell"
+
+
+class PriceType(StrEnum):
+    LMT = "LMT"
+    MKT = "MKT"
+    MKP = "MKP"
+
+
+class OrderType(StrEnum):
+    ROD = "ROD"
+    IOC = "IOC"
+    FOK = "FOK"
+
+
+class OrderCond(StrEnum):
+    CASH = "Cash"
+    MARGIN_TRADING = "MarginTrading"
+    SHORT_SELLING = "ShortSelling"
+
+
+class OrderLot(StrEnum):
+    COMMON = "Common"
+    ODD = "Odd"
+    INTRADAY_ODD = "IntradayOdd"
+    FIXING = "Fixing"
+
+
+class PlaceOrderRequest(BaseModel):
+    code: str
+    action: Action
+    price: float
+    quantity: int
+    price_type: PriceType = PriceType.LMT
+    order_type: OrderType = OrderType.ROD
+    order_cond: OrderCond = OrderCond.CASH
+    order_lot: OrderLot = OrderLot.COMMON
+    market: str = "stock"  # "stock", "futures", "options"
+
+
+class UpdateOrderRequest(BaseModel):
+    trade_id: str
+    price: float | None = None
+    quantity: int | None = None
+
+
+class CancelOrderRequest(BaseModel):
+    trade_id: str
+
+
+class TradeInfo(BaseModel):
+    trade_id: str
+    code: str
+    action: str
+    price: float
+    quantity: int
+    status: str
+    order_type: str
+    price_type: str
+
+
+# --- Account ---
+
+
+class Position(BaseModel):
+    code: str
+    direction: str
+    quantity: int
+    price: float
+    last_price: float
+    pnl: float
+    yd_quantity: int
+
+
+class AccountBalance(BaseModel):
+    date: str
+    balance: float
+
+
+class MarginInfo(BaseModel):
+    yesterday_balance: float
+    today_balance: float
+    available_margin: float
+    risk_indicator: float
+
+
+class ProfitLoss(BaseModel):
+    code: str
+    quantity: int
+    buy_price: float
+    sell_price: float
+    pnl: float
+    pr_ratio: float

@@ -142,7 +142,12 @@ class ShioajiClient:
                 "timestamp": str(bidask.datetime),
             })
 
+        # Order/deal callback
+        def on_order(stat, msg):
+            manager.broadcast_order_update(str(stat), msg)
+
         self.api.quote.set_on_tick_stk_v1_callback(on_tick_stk)
         self.api.quote.set_on_bidask_stk_v1_callback(on_bidask_stk)
         self.api.quote.set_on_tick_fop_v1_callback(on_tick_fop)
         self.api.quote.set_on_bidask_fop_v1_callback(on_bidask_fop)
+        self.api.set_order_callback(on_order)
