@@ -16,6 +16,7 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
             ca_passwd=req.ca_passwd,
             simulation=req.simulation,
         )
+        sj.register_callbacks(request.app.state.ws_manager)
         return LoginResponse(accounts=accounts)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

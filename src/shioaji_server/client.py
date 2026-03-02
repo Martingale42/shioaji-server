@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import shioaji as sj
+
+if TYPE_CHECKING:
+    from shioaji_server.ws.manager import ConnectionManager
 
 
 @dataclass
@@ -74,3 +80,64 @@ class ShioajiClient:
     def require_connected(self) -> None:
         if not self.connected:
             raise RuntimeError("Not connected — call /api/auth/login first")
+
+    def register_callbacks(self, manager: ConnectionManager) -> None:
+        """Register Shioaji quote + order callbacks that route to WS manager."""
+
+        # Stock tick
+        def on_tick_stk(exchange, tick):
+            manager.broadcast_from_thread(tick.code, "tick", {
+                "close": float(tick.close),
+                "volume": int(tick.volume),
+                "total_volume": int(tick.total_volume),
+                "tick_type": int(tick.tick_type),
+                "bid_side_total_vol": int(tick.bid_side_total_vol),
+                "ask_side_total_vol": int(tick.ask_side_total_vol),
+                "avg_price": float(tick.avg_price),
+                "open": float(tick.open),
+                "high": float(tick.high),
+                "low": float(tick.low),
+                "amount": float(tick.amount),
+                "pct_chg": float(tick.pct_chg),
+                "timestamp": str(tick.datetime),
+            })
+
+        # Stock bidask
+        def on_bidask_stk(exchange, bidask):
+            manager.broadcast_from_thread(bidask.code, "bidask", {
+                "bid_price": [float(p) for p in bidask.bid_price],
+                "bid_volume": [int(v) for v in bidask.bid_volume],
+                "ask_price": [float(p) for p in bidask.ask_price],
+                "ask_volume": [int(v) for v in bidask.ask_volume],
+                "timestamp": str(bidask.datetime),
+            })
+
+        # Futures/options tick
+        def on_tick_fop(exchange, tick):
+            manager.broadcast_from_thread(tick.code, "tick", {
+                "close": float(tick.close),
+                "volume": int(tick.volume),
+                "total_volume": int(tick.total_volume),
+                "underlying_price": float(tick.underlying_price),
+                "bid_side_total_vol": int(tick.bid_side_total_vol),
+                "ask_side_total_vol": int(tick.ask_side_total_vol),
+                "open": float(tick.open),
+                "high": float(tick.high),
+                "low": float(tick.low),
+                "timestamp": str(tick.datetime),
+            })
+
+        # Futures/options bidask
+        def on_bidask_fop(exchange, bidask):
+            manager.broadcast_from_thread(bidask.code, "bidask", {
+                "bid_price": [float(p) for p in bidask.bid_price],
+                "bid_volume": [int(v) for v in bidask.bid_volume],
+                "ask_price": [float(p) for p in bidask.ask_price],
+                "ask_volume": [int(v) for v in bidask.ask_volume],
+                "timestamp": str(bidask.datetime),
+            })
+
+        self.api.quote.set_on_tick_stk_v1_callback(on_tick_stk)
+        self.api.quote.set_on_bidask_stk_v1_callback(on_bidask_stk)
+        self.api.quote.set_on_tick_fop_v1_callback(on_tick_fop)
+        self.api.quote.set_on_bidask_fop_v1_callback(on_bidask_fop)
