@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from shioaji_server.models import AccountBalance, MarginInfo, Position, ProfitLoss
 
@@ -76,6 +76,8 @@ async def account_balance(request: Request) -> dict:
 async def margin(request: Request) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
+    if sj.api.futopt_account is None:
+        raise HTTPException(status_code=400, detail="No futures/options account available")
     return await sj.run_sync(_margin_sync, sj.api, sj.api.futopt_account)
 
 

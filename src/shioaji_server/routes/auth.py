@@ -18,6 +18,8 @@ async def login(req: LoginRequest, request: Request) -> LoginResponse:
         )
         sj.register_callbacks(request.app.state.ws_manager)
         return LoginResponse(accounts=accounts)
+    except RuntimeError:
+        raise  # let middleware handle (409 already connected, 503 not connected)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -1,10 +1,18 @@
-from functools import partial
-
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from shioaji_server.models import KBarsResponse, SnapshotData, TicksResponse
 
 router = APIRouter(prefix="/api/market", tags=["market_data"])
+
+
+def _resolve_contract(api, code: str, market: str):
+    if market == "stock":
+        return api.Contracts.Stocks[code]
+    elif market == "futures":
+        return api.Contracts.Futures[code]
+    elif market == "options":
+        return api.Contracts.Options[code]
+    raise HTTPException(status_code=400, detail=f"Unknown market: {market}")
 
 
 def _fetch_snapshots(api, contracts) -> list[dict]:
@@ -59,10 +67,11 @@ def _fetch_kbars(api, contract, start: str, end: str) -> dict:
 async def snapshots(
     request: Request,
     codes: str = Query(..., description="Comma-separated contract codes, e.g. '2330,2317'"),
+    market: str = Query("stock", description="'stock', 'futures', or 'options'"),
 ) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
-    contracts = [sj.api.Contracts.Stocks[c] for c in codes.split(",")]
+    contracts = [_resolve_contract(sj.api, c, market) for c in codes.split(",")]
     return await sj.run_sync(_fetch_snapshots, sj.api, contracts)
 
 
@@ -71,10 +80,11 @@ async def ticks(
     request: Request,
     code: str = Query(..., description="Contract code, e.g. '2330'"),
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    market: str = Query("stock", description="'stock', 'futures', or 'options'"),
 ) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
-    contract = sj.api.Contracts.Stocks[code]
+    contract = _resolve_contract(sj.api, code, market)
     data = await sj.run_sync(_fetch_ticks, sj.api, contract, date)
     data["code"] = code
     return data
@@ -86,10 +96,11 @@ async def kbars(
     code: str = Query(..., description="Contract code, e.g. '2330'"),
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
+    market: str = Query("stock", description="'stock', 'futures', or 'options'"),
 ) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
-    contract = sj.api.Contracts.Stocks[code]
+    contract = _resolve_contract(sj.api, code, market)
     data = await sj.run_sync(_fetch_kbars, sj.api, contract, start, end)
     data["code"] = code
     return data

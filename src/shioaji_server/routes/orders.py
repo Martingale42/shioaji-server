@@ -37,7 +37,8 @@ def _cancel_order_sync(api, trade):
 
 def _list_trades_sync(api):
     api.update_status(api.stock_account)
-    api.update_status(api.futopt_account)
+    if api.futopt_account is not None:
+        api.update_status(api.futopt_account)
     return api.list_trades()
 
 
