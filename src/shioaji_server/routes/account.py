@@ -54,7 +54,7 @@ def _list_profit_loss_sync(api, account) -> list[dict]:
     ]
 
 
-@router.get("/positions", response_model=list[Position])
+@router.get("/positions", response_model=list[Position], summary="List positions", description="Returns current holding positions for stock or futures/options account.")
 async def list_positions(
     request: Request,
     market: str = Query("stock", description="'stock' or 'futures'"),
@@ -67,14 +67,14 @@ async def list_positions(
     return await sj.run_sync(_list_positions_sync, sj.api, account)
 
 
-@router.get("/balance", response_model=AccountBalance)
+@router.get("/balance", response_model=AccountBalance, summary="Account balance", description="Returns stock account balance (TWD).")
 async def account_balance(request: Request) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
     return await sj.run_sync(_account_balance_sync, sj.api)
 
 
-@router.get("/margin", response_model=MarginInfo)
+@router.get("/margin", response_model=MarginInfo, summary="Margin info", description="Returns futures/options margin account details. Returns 400 if no futures account.")
 async def margin(request: Request) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
@@ -83,7 +83,7 @@ async def margin(request: Request) -> dict:
     return await sj.run_sync(_margin_sync, sj.api, sj.api.futopt_account)
 
 
-@router.get("/pnl", response_model=list[ProfitLoss])
+@router.get("/pnl", response_model=list[ProfitLoss], summary="Profit & loss", description="Returns realized profit/loss records for the stock account.")
 async def profit_loss(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()

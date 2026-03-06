@@ -63,7 +63,7 @@ def _fetch_kbars(api, contract, start: str, end: str) -> dict:
     }
 
 
-@router.get("/snapshots", response_model=list[SnapshotData])
+@router.get("/snapshots", response_model=list[SnapshotData], summary="Real-time snapshots", description="Get real-time market snapshots for one or more contracts. Supports stocks, futures, and options.")
 async def snapshots(
     request: Request,
     codes: str = Query(..., description="Comma-separated contract codes, e.g. '2330,2317'"),
@@ -75,7 +75,7 @@ async def snapshots(
     return await sj.run_sync(_fetch_snapshots, sj.api, contracts)
 
 
-@router.get("/ticks", response_model=TicksResponse)
+@router.get("/ticks", response_model=TicksResponse, summary="Historical ticks", description="Get tick-by-tick trade data for a single contract on a specific date.")
 async def ticks(
     request: Request,
     code: str = Query(..., description="Contract code, e.g. '2330'"),
@@ -90,7 +90,7 @@ async def ticks(
     return data
 
 
-@router.get("/kbars", response_model=KBarsResponse)
+@router.get("/kbars", response_model=KBarsResponse, summary="Historical K-bars", description="Get OHLCV candlestick data for a date range. Returns 1-minute bars.")
 async def kbars(
     request: Request,
     code: str = Query(..., description="Contract code, e.g. '2330'"),

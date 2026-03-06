@@ -49,7 +49,7 @@ def _find_trade_sync(api, trade_id: str):
     return None
 
 
-@router.post("/place")
+@router.post("/place", summary="Place order", description="Submit a new order. Stock orders use stock_account; futures/options use futopt_account. Market price orders (MKT/MKP) must use IOC or FOK.")
 async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
     sj_client = request.app.state.sj
     sj_client.require_connected()
@@ -97,7 +97,7 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
     }
 
 
-@router.put("/update")
+@router.put("/update", summary="Modify order", description="Change the price or reduce the quantity of an existing order. Quantity can only be decreased, not increased. Returns 404 if trade_id not found.")
 async def update_order(req: UpdateOrderRequest, request: Request) -> dict:
     sj_client = request.app.state.sj
     sj_client.require_connected()
@@ -118,7 +118,7 @@ async def update_order(req: UpdateOrderRequest, request: Request) -> dict:
     return {"status": "ok", "trade_id": req.trade_id}
 
 
-@router.delete("/cancel")
+@router.delete("/cancel", summary="Cancel order", description="Cancel an existing order by trade_id. Returns 404 if trade_id not found.")
 async def cancel_order(req: CancelOrderRequest, request: Request) -> dict:
     sj_client = request.app.state.sj
     sj_client.require_connected()
@@ -134,7 +134,7 @@ async def cancel_order(req: CancelOrderRequest, request: Request) -> dict:
     return {"status": "ok", "trade_id": req.trade_id}
 
 
-@router.get("/trades", response_model=list[TradeInfo])
+@router.get("/trades", response_model=list[TradeInfo], summary="List all trades", description="Returns all submitted orders/trades for the current session. Refreshes order status before returning.")
 async def list_trades(request: Request) -> list[dict]:
     sj_client = request.app.state.sj
     sj_client.require_connected()

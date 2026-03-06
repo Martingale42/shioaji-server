@@ -3,7 +3,8 @@
 所有 API 端點的 curl 範例和常用操作速查。
 
 Server 預設地址：`http://localhost:8000`
-Swagger UI：`http://localhost:8000/docs`
+
+> **互動式 API 文件**：啟動 server 後開啟 [Swagger UI](http://localhost:8000/docs) 或 [ReDoc](http://localhost:8000/redoc)，可直接在瀏覽器瀏覽所有端點、參數說明並測試 API。
 
 ---
 

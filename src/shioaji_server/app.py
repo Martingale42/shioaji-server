@@ -82,7 +82,19 @@ async def lifespan(app: FastAPI):
     await app.state.sj.logout()
 
 
-app = FastAPI(title="Shioaji Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Shioaji Server",
+    version="0.1.0",
+    description=(
+        "REST/WebSocket gateway for Sinopac Shioaji SDK.\n\n"
+        "Wraps the Shioaji Python SDK into HTTP API + WebSocket real-time market data push, "
+        "enabling NautilusTrader (Rust/PyO3) to connect to Taiwan stock/futures/options markets "
+        "via standard network protocols.\n\n"
+        "**WebSocket** endpoint at `/ws` for real-time tick and bid/ask streaming.\n\n"
+        "Source: [GitHub](https://github.com/Martingale42/shioaji-server)"
+    ),
+    lifespan=lifespan,
+)
 app.include_router(auth_router)
 app.include_router(contracts_router)
 app.include_router(market_data_router)
@@ -91,7 +103,7 @@ app.include_router(account_router)
 app.add_exception_handler(RuntimeError, runtime_error_handler)
 
 
-@app.get("/api/health")
+@app.get("/api/health", summary="Health check", description="Returns server status and Shioaji connection state.", tags=["system"])
 async def health(request: Request) -> dict:
     return {"status": "ok", "connected": request.app.state.sj.connected}
 

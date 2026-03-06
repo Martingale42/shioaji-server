@@ -88,7 +88,16 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 
 如果缺少 `.env` 或必要的環境變數，server 仍會啟動但不會自動登入，並顯示設定提示。此時可以手動登入（見 [docs/REFERENCE.md](docs/REFERENCE.md#認證)）。
 
-### 5. 連接 NautilusTrader
+### 5. API 文件
+
+Server 啟動後，可在瀏覽器開啟自動產生的互動式 API 文件：
+
+- **Swagger UI**：http://localhost:8000/docs
+- **ReDoc**：http://localhost:8000/redoc
+
+所有端點、參數說明、request/response schema 都在裡面，可以直接在頁面上測試 API。
+
+### 6. 連接 NautilusTrader
 
 Server 啟動並登入後，NT adapter 即可連接：
 

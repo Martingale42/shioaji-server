@@ -78,14 +78,14 @@ def _list_options(api) -> list[dict]:
     return results
 
 
-@router.get("/stocks", response_model=list[StockContract])
+@router.get("/stocks", response_model=list[StockContract], summary="List all stocks", description="Returns all available stock contracts from TSE and OTC. Requires login.")
 async def list_stocks(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
     return await sj.run_sync(_list_stocks, sj.api)
 
 
-@router.get("/stocks/{code}", response_model=StockContract)
+@router.get("/stocks/{code}", response_model=StockContract, summary="Get stock by code", description="Returns a single stock contract by code (e.g. '2330'). Returns 404 if not found.")
 async def get_stock(code: str, request: Request) -> dict:
     sj = request.app.state.sj
     sj.require_connected()
@@ -95,14 +95,14 @@ async def get_stock(code: str, request: Request) -> dict:
     return _stock_to_dict(contract)
 
 
-@router.get("/futures", response_model=list[FuturesContract])
+@router.get("/futures", response_model=list[FuturesContract], summary="List all futures", description="Returns all available futures contracts (TAIFEX). Requires login.")
 async def list_futures(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
     return await sj.run_sync(_list_futures, sj.api)
 
 
-@router.get("/options", response_model=list[OptionsContract])
+@router.get("/options", response_model=list[OptionsContract], summary="List all options", description="Returns all available options contracts (TAIFEX). Requires login.")
 async def list_options(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
