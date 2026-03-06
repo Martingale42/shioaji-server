@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from functools import partial
 
@@ -20,12 +21,63 @@ log = logging.getLogger(__name__)
 
 manager = ConnectionManager()
 
+_ENV_SETUP_HINT = """
+[shioaji-server] Auto-login skipped: missing environment variables.
+
+To enable auto-login, create a .env file with:
+
+    SHIOAJI_API_KEY=your_api_key
+    SHIOAJI_SECRET_KEY=your_secret_key
+    CA_PATH=/absolute/path/to/Sinopac.pfx    # optional, required for placing orders
+    CA_PERSON=your_ca_password                # optional, required for placing orders
+
+Then start the server from the directory containing .env,
+or set SHIOAJI_ENV_FILE to point to the .env path.
+
+See README.md for the full setup guide.
+You can also login manually via POST /api/auth/login after the server starts.
+""".strip()
+
+
+async def _auto_login(sj_client: ShioajiClient) -> None:
+    """Attempt auto-login from environment variables."""
+    api_key = os.environ.get("SHIOAJI_API_KEY")
+    secret_key = os.environ.get("SHIOAJI_SECRET_KEY")
+
+    if not api_key or not secret_key:
+        log.warning(_ENV_SETUP_HINT)
+        return
+
+    ca_path = os.environ.get("CA_PATH")
+    ca_passwd = os.environ.get("CA_PERSON")
+    simulation = os.environ.get("SHIOAJI_SIMULATION", "true").lower() in ("true", "1", "yes")
+
+    mode = "simulation" if simulation else "LIVE"
+    log.info("[shioaji-server] Auto-login starting (%s)...", mode)
+
+    try:
+        accounts = await sj_client.login(
+            api_key=api_key,
+            secret_key=secret_key,
+            ca_path=ca_path,
+            ca_passwd=ca_passwd,
+            simulation=simulation,
+        )
+        log.info("[shioaji-server] Login successful! %d account(s):", len(accounts))
+        for acc in accounts:
+            log.info("  - %s: %s", acc["account_type"], acc["account_id"])
+    except Exception:
+        log.exception("[shioaji-server] Auto-login failed")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.sj = ShioajiClient()
     app.state.ws_manager = manager
     manager.set_loop(asyncio.get_running_loop())
+    await _auto_login(app.state.sj)
+    if app.state.sj.connected:
+        app.state.sj.register_callbacks(manager)
     yield
     await app.state.sj.logout()
 

@@ -49,11 +49,26 @@ def _list_stocks(api) -> list[dict]:
 
 
 def _list_futures(api) -> list[dict]:
-    return [_futures_to_dict(c) for c in api.Contracts.Futures]
+    results = []
+    for category in api.Contracts.Futures:
+        if hasattr(category, "code"):
+            results.append(_futures_to_dict(category))
+        else:
+            # StreamMultiContract: iterate its individual contracts
+            for c in category:
+                results.append(_futures_to_dict(c))
+    return results
 
 
 def _list_options(api) -> list[dict]:
-    return [_options_to_dict(c) for c in api.Contracts.Options]
+    results = []
+    for category in api.Contracts.Options:
+        if hasattr(category, "code"):
+            results.append(_options_to_dict(category))
+        else:
+            for c in category:
+                results.append(_options_to_dict(c))
+    return results
 
 
 @router.get("/stocks", response_model=list[StockContract])
