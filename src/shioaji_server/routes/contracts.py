@@ -45,7 +45,14 @@ def _options_to_dict(contract) -> dict:
 
 
 def _list_stocks(api) -> list[dict]:
-    return [_stock_to_dict(c) for c in api.Contracts.Stocks]
+    results = []
+    for item in api.Contracts.Stocks:
+        if hasattr(item, "code"):
+            results.append(_stock_to_dict(item))
+        else:
+            for c in item:
+                results.append(_stock_to_dict(c))
+    return results
 
 
 def _list_futures(api) -> list[dict]:
