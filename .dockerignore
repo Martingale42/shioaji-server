@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.lock
+
+# Secrets — mount at runtime, never bake into image
+.env
+*.pfx
+
+# Logs
+*.log
+
+# Docs
+docs/
+README.md
+
+# Git
+.git/
+.gitignore
