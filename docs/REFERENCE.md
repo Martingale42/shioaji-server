@@ -9,18 +9,31 @@ Swagger UI：`http://localhost:8000/docs`
 
 ## 啟動與停止
 
+### Docker（推薦）
+
 ```bash
-# 啟動（模擬環境，自動登入）
-cd shioaji-server && uv run shioaji-server
+make build        # 建置 image（首次 make up 會自動觸發）
+make up           # 啟動（模擬環境，detached，自動登入）
+make up-live      # 啟動（正式環境，detached）
+make down         # 停止並移除 container
+make restart      # 重啟
 
-# 啟動（正式環境）
-cd shioaji-server && uv run shioaji-server --live
+make logs         # 查看 container stdout
+tail -f server.log  # 查看應用 log（mount 到 host）
+make status       # 健康檢查
+make clean        # 移除 container 和 image
+make help         # 顯示所有命令
+```
 
-# 背景啟動
-cd shioaji-server && uv run shioaji-server &> server.log &
+### 本地執行
 
-# 查看 log
-tail -f server.log
+```bash
+cd shioaji-server
+uv run shioaji-server          # 模擬環境（自動登入）
+uv run shioaji-server --live   # 正式環境
+
+# 背景執行
+uv run shioaji-server &> server.log &
 
 # 停止
 kill $(lsof -ti :8000)
@@ -33,6 +46,9 @@ kill $(lsof -ti :8000)
 ```bash
 curl http://localhost:8000/api/health
 # {"status":"ok","connected":true}
+
+# 或
+make status
 ```
 
 ---
@@ -54,6 +70,8 @@ curl -X POST http://localhost:8000/api/auth/login \
 }
 EOF
 ```
+
+> Docker 環境中 `ca_path` 應為 `/app/Sinopac.pfx`。
 
 ### 登出
 

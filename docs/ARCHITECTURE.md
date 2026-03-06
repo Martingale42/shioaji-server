@@ -16,7 +16,7 @@ Shioaji Server 是一個 **協定轉換閘道器**，將永豐金 Shioaji Python
             │                              │
             ▼                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                      Shioaji Server (FastAPI)                    │
+│              Shioaji Server (FastAPI) — Docker or local          │
 │                                                                  │
 │  ┌──────────┐  ┌───────────┐  ┌────────┐  ┌─────────┐          │
 │  │ /api/auth │  │/api/orders│  │/api/mkt│  │/api/acct│          │
@@ -40,19 +40,47 @@ Shioaji Server 是一個 **協定轉換閘道器**，將永豐金 Shioaji Python
 
 ---
 
+## 部署模式
+
+### Docker（推薦）
+
+```
+Host                              Container (/app)
+─────────────────                 ─────────────────
+.env           ──mount(ro)──►    .env
+Sinopac.pfx    ──mount(ro)──►    Sinopac.pfx
+server.log     ──mount(rw)──►    server.log
+
+Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
+覆蓋 .env 中的 host 路徑
+```
+
+`Makefile` 負責編排 `docker build` / `docker run`，包含：
+- 自動 build image（首次 `make up`）
+- 從 `.env` 讀取 `SHIOAJI_SERVER_PORT` 設定 port mapping
+- 用 `-e CA_PATH` 覆蓋 container 內的憑證路徑
+- mount `server.log` 讓 host 可直接 `tail -f`
+
+### 本地執行
+
+直接 `uv run shioaji-server`，`__main__.py` 從 cwd 載入 `.env`。
+
+---
+
 ## 元件職責
 
 ### `__main__.py` — 入口
 
-- 載入 `.env` 環境變數
+- 載入 `.env` 環境變數（搜尋 cwd → parent dir，或 `SHIOAJI_ENV_FILE`）
 - 解析 CLI 參數（`--live`）
-- 設定 log level
+- 設定 log level（`logging.basicConfig` + uvicorn `log_level`）
 - 啟動 uvicorn
 
 ### `app.py` — FastAPI 應用
 
-- 定義 `lifespan`：啟動時建立 `ShioajiClient` + 自動登入，關閉時 logout
-- 掛載所有 route routers
+- 定義 `lifespan`：啟動時建立 `ShioajiClient` → 自動登入 → 註冊 WS callbacks，關閉時 logout
+- `_auto_login`：讀取環境變數嘗試登入，缺少時印出設定提示但不 crash
+- 掛載所有 route routers + RuntimeError handler
 - `/ws` WebSocket 端點：處理行情訂閱/取消訂閱
 - `/api/health` 健康檢查
 
@@ -232,17 +260,25 @@ Gateway 模式將 SDK 隔離在獨立 process，透過 HTTP/WS 提供語言無�
 
 整個 server 共用一個 `ShioajiClient` 實例（存在 `app.state.sj`）。Shioaji SDK 本身不支援多實例（受限於連線數和 callback 註冊），單一實例也符合一個 server 對應一個交易帳戶的設計。
 
+### Docker 中的 CA_PATH 處理
+
+`.env` 中的 `CA_PATH` 是 host 的絕對路徑，在 container 內無效。Makefile 用 `-e CA_PATH=/app/Sinopac.pfx` 環境變數覆蓋它（`__main__.py` 的 `_load_env` 使用 `os.environ.setdefault`，不會覆蓋已存在的環境變數）。
+
 ---
 
 ## 檔案結構
 
 ```
 shioaji-server/
+├── .dockerignore           # Docker build 排除清單
 ├── .env                    # 環境變數（gitignored）
+├── .env.example            # 環境變數範本
 ├── .gitignore
+├── Dockerfile              # Docker image 定義
+├── Makefile                # build/up/down/logs 等命令
 ├── pyproject.toml          # 專案設定、依賴
-├── server.log              # 執行日誌（gitignored）
-├── Sinopac.pfx             # CA 憑證（gitignored）
+├── server.log              # 執行日誌（gitignored，Docker mount）
+├── Sinopac.pfx             # CA 憑證（gitignored，Docker mount）
 ├── README.md               # 快速開始指南
 ├── docs/
 │   ├── ARCHITECTURE.md     # 本文件
@@ -250,7 +286,7 @@ shioaji-server/
 └── src/
     └── shioaji_server/
         ├── __init__.py
-        ├── __main__.py     # 入口：載入 .env、啟動 uvicorn
+        ├── __main__.py     # 入口：載入 .env、CLI 參數、啟動 uvicorn
         ├── app.py          # FastAPI app、lifespan、auto-login、WS 端點
         ├── client.py       # ShioajiClient：SDK 封裝、async bridge
         ├── errors.py       # RuntimeError → HTTP status 映射
