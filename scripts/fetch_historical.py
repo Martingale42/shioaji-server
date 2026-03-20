@@ -28,7 +28,7 @@ from nautilus_trader.model.objects import Currency, Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
-from scripts.filters import five_tier_liquidity
+from scripts.filters import compose_filters, exchange_in, five_tier_liquidity
 
 VENUE = Venue("SINOPAC")
 TWD = Currency.from_str("TWD")
@@ -129,7 +129,28 @@ async def build_metadata(
     )
 
     metadata = contracts_df.join(snapshots_df, on="code", how="inner")
+
+    # Normalize exchange: "Exchange.TSE" → "TSE"
+    metadata = metadata.with_columns(
+        pl.col("exchange").str.replace("Exchange.", "").alias("exchange")
+    )
+
     return metadata
+
+
+MAX_CONSECUTIVE_ERRORS = 3
+
+
+async def probe_kbar_availability(
+    client: ShioajiClient, code: str, end: date
+) -> bool:
+    """Try fetching a recent month to check if kbar data exists for this stock."""
+    probe_start = (end.replace(day=1) - timedelta(days=1)).replace(day=1)
+    try:
+        resp = await client.get_kbars(code, probe_start.isoformat(), end.isoformat())
+        return len(resp.get("ts", [])) > 0
+    except Exception:
+        return False
 
 
 async def fetch_stock_bars(
@@ -142,6 +163,7 @@ async def fetch_stock_bars(
 ) -> int:
     """Download kbars for one stock in monthly chunks and write to catalog."""
     total_bars = 0
+    consecutive_errors = 0
     chunks = month_ranges(start, end)
 
     for chunk_start, chunk_end in chunks:
@@ -151,11 +173,18 @@ async def fetch_stock_bars(
         try:
             kbar_resp = await client.get_kbars(code, start_str, end_str)
         except Exception as e:
-            print(f"  ERROR {code} {start_str}→{end_str}: {e}")
+            consecutive_errors += 1
+            if consecutive_errors <= 2:
+                print(f"    ERROR {start_str}→{end_str}: {e!r}")
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                print(f"    SKIP: {MAX_CONSECUTIVE_ERRORS} consecutive errors")
+                break
             continue
 
+        consecutive_errors = 0
         bars = kbars_to_bars(kbar_resp, bar_type)
         if bars:
+            bars.sort(key=lambda b: b.ts_init)
             catalog.write_data(bars)
             total_bars += len(bars)
 
@@ -176,8 +205,11 @@ async def main(args: argparse.Namespace) -> None:
         metadata = await build_metadata(client)
         print(f"Metadata: {metadata.shape[0]} stocks with snapshot data")
 
-        # Step 2: Apply filter
-        stock_filter = five_tier_liquidity(n_per_tier=args.n_per_tier)
+        # Step 2: Apply filter — only TSE/OTC (OES has no kbar history)
+        stock_filter = compose_filters(
+            exchange_in(["TSE", "OTC"]),
+            five_tier_liquidity(n_per_tier=args.n_per_tier),
+        )
         selected = stock_filter(metadata)
         print(f"Selected {selected.shape[0]} stocks after filtering")
         print(selected.select("code", "name", "close", "total_volume"))
@@ -187,19 +219,30 @@ async def main(args: argparse.Namespace) -> None:
         selected.write_parquet(meta_path)
         print(f"Saved metadata to {meta_path}")
 
-        # Step 4: Download kbars for each selected stock
+        # Step 4: Probe availability, then download kbars
         codes = selected["code"].to_list()
-        for i, code in enumerate(codes, 1):
+        names = dict(zip(codes, selected["name"].to_list()))
+
+        print(f"Probing kbar availability for {len(codes)} stocks...")
+        available: list[str] = []
+        for code in codes:
+            ok = await probe_kbar_availability(client, code, end)
+            status = "OK" if ok else "no data"
+            print(f"  {code} ({names[code]}): {status}")
+            if ok:
+                available.append(code)
+
+        print(f"{len(available)}/{len(codes)} stocks have kbar data\n")
+
+        for i, code in enumerate(available, 1):
             instrument_id = InstrumentId(Symbol(code), VENUE)
             bar_type = BarType(instrument_id, BAR_SPEC)
 
-            # Create and write instrument
             contract_row = selected.filter(pl.col("code") == code).to_dicts()[0]
-            # Build a minimal contract dict for equity creation
             equity = contract_to_equity(contract_row)
             catalog.write_data([equity])
 
-            print(f"[{i}/{len(codes)}] {code} ({contract_row['name']}) "
+            print(f"[{i}/{len(available)}] {code} ({names[code]}) "
                   f"{start}→{end}...")
             n_bars = await fetch_stock_bars(
                 client, code, bar_type, start, end, catalog

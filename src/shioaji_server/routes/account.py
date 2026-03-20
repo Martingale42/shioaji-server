@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from shioaji_server.models import AccountBalance, MarginInfo, Position, ProfitLoss
+from shioaji_server.models import AccountBalance, MarginInfo, Position, ProfitLoss, UsageResponse
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
@@ -88,3 +88,27 @@ async def profit_loss(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
     return await sj.run_sync(_list_profit_loss_sync, sj.api, sj.api.stock_account)
+
+
+def _usage_sync(api) -> dict:
+    u = api.usage()
+    limit_bytes = u.limit_bytes
+    used_bytes = u.bytes
+    remaining = u.remaining_bytes
+    return {
+        "connections": u.connections,
+        "bytes": used_bytes,
+        "limit_bytes": limit_bytes,
+        "remaining_bytes": remaining,
+        "used_mb": round(used_bytes / 1_048_576, 2),
+        "limit_mb": round(limit_bytes / 1_048_576, 2),
+        "remaining_mb": round(remaining / 1_048_576, 2),
+        "remaining_pct": round(remaining / limit_bytes * 100, 2) if limit_bytes > 0 else 0.0,
+    }
+
+
+@router.get("/usage", response_model=UsageResponse, summary="API usage status", description="Returns current daily traffic usage, quota limit, and remaining bytes. Use to monitor quota before heavy data fetching.")
+async def usage(request: Request) -> dict:
+    sj = request.app.state.sj
+    sj.require_connected()
+    return await sj.run_sync(_usage_sync, sj.api)

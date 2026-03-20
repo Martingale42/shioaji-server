@@ -49,6 +49,19 @@ class ShioajiClient:
                 await asyncio.sleep(0.5)
         return results
 
+    async def get_usage(self) -> dict:
+        """GET /api/account/usage → current traffic quota status."""
+        resp = await self._get("/api/account/usage")
+        return resp.json()
+
+    async def get_ticks(self, code: str, date: str) -> dict:
+        """GET /api/market/ticks → tick-by-tick trades for *code* on *date*."""
+        resp = await self._get(
+            "/api/market/ticks",
+            params={"code": code, "date": date, "market": "stock"},
+        )
+        return resp.json()
+
     async def get_kbars(self, code: str, start: str, end: str) -> dict:
         """GET /api/market/kbars → 1-min OHLCV bars for *code*."""
         resp = await self._get(

@@ -242,3 +242,19 @@ class ProfitLoss(BaseModel):
     sell_price: float = Field(description="Average sell price")
     pnl: float = Field(description="Realized profit/loss (TWD)")
     pr_ratio: float = Field(description="Profit/loss ratio (%)")
+
+
+# --- Usage ---
+
+
+class UsageResponse(BaseModel):
+    """Shioaji API usage status for current session."""
+
+    connections: int = Field(description="Active connection count")
+    bytes: int = Field(description="Bytes consumed today")
+    limit_bytes: int = Field(description="Daily traffic quota (bytes)")
+    remaining_bytes: int = Field(description="Remaining bytes today")
+    used_mb: float = Field(description="Bytes consumed today (MB)")
+    limit_mb: float = Field(description="Daily traffic quota (MB)")
+    remaining_mb: float = Field(description="Remaining traffic (MB)")
+    remaining_pct: float = Field(description="Remaining traffic (%)")
