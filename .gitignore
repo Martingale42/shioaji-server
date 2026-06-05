@@ -11,3 +11,7 @@ build/
 *.pfx
 
 *.excalidraw
+
+# Downloaded historical data (ParquetDataCatalog) — hundreds of MB, not for VCS
+catalog/
+data/catalog/

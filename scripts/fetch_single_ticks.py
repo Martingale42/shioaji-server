@@ -62,8 +62,20 @@ def _ns_to_trade_id(code: str, ts_ns: int) -> TradeId:
 
 def ticks_to_trade_ticks(
     tick_resp: dict, instrument_id: InstrumentId
-) -> list[TradeTick]:
-    """Convert a ticks API response dict to a list of NT TradeTick objects."""
+) -> tuple[list[TradeTick], int]:
+    """Convert a ticks API response dict to a list of NT TradeTick objects.
+
+    Definition: Maps each Shioaji tick row (ts/close/volume/tick_type) to an
+        NT ``TradeTick``, dropping rows that carry no executed trade.
+    Domain:     Shioaji occasionally returns rows with ``volume == 0`` or
+        ``close <= 0`` — pre-open trial-match / auction-disclosure ticks that
+        report an indicative price but no actual fill. NT's ``TradeTick``
+        rejects these via ``Condition.positive_int`` on ``size`` (raising
+        ``ValueError: 'size' not a positive integer, was 0``), so they are
+        filtered out instead of aborting the whole trading day.
+    Returns:    ``(trade_ticks, n_skipped)`` — the valid ticks plus the count
+        of dropped invalid rows (for diagnostic accounting).
+    """
     code = instrument_id.symbol.value
     timestamps = tick_resp["ts"]
     closes = tick_resp["close"]
@@ -71,7 +83,11 @@ def ticks_to_trade_ticks(
     tick_types = tick_resp["tick_type"]
 
     trade_ticks: list[TradeTick] = []
+    skipped = 0
     for i in range(len(timestamps)):
+        if volumes[i] <= 0 or closes[i] <= 0:
+            skipped += 1
+            continue
         ts_ns = timestamps[i]
         trade_ticks.append(
             TradeTick(
@@ -84,7 +100,7 @@ def ticks_to_trade_ticks(
                 ts_init=ts_ns,
             )
         )
-    return trade_ticks
+    return trade_ticks, skipped
 
 
 def trading_days(start: date, end: date) -> list[date]:
@@ -130,6 +146,7 @@ async def fetch_stock_ticks(
     Returns (total_ticks, last_date_fetched).
     """
     total_ticks = 0
+    total_skipped = 0
     consecutive_errors = 0
     consecutive_empty = 0
     days = trading_days(start, end)
@@ -169,7 +186,8 @@ async def fetch_stock_ticks(
             continue
 
         consecutive_empty = 0
-        trade_ticks = ticks_to_trade_ticks(tick_resp, instrument_id)
+        trade_ticks, n_skipped = ticks_to_trade_ticks(tick_resp, instrument_id)
+        total_skipped += n_skipped
         if trade_ticks:
             trade_ticks.sort(key=lambda t: t.ts_init)
             catalog.write_data(trade_ticks)
@@ -180,8 +198,11 @@ async def fetch_stock_ticks(
         if (i + 1) % 50 == 0:
             print(f"    progress: {i + 1}/{len(days)} days, "
                   f"{days_with_data} with data, {empty_days} empty, "
-                  f"{total_ticks} ticks so far")
+                  f"{total_ticks} ticks so far ({total_skipped} invalid skipped)")
 
+    if total_skipped:
+        print(f"    filtered {total_skipped} invalid tick(s) total "
+              f"(volume<=0 or price<=0)")
     return total_ticks, last_date
 
 
