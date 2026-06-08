@@ -61,9 +61,14 @@ async def list_positions(
 ) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
-    if market != "stock" and sj.api.futopt_account is None:
-        raise HTTPException(status_code=400, detail="No futures/options account available")
-    account = sj.api.stock_account if market == "stock" else sj.api.futopt_account
+    if market == "stock":
+        if sj.api.stock_account is None:
+            raise HTTPException(status_code=400, detail="No stock account available")
+        account = sj.api.stock_account
+    else:
+        if sj.api.futopt_account is None:
+            raise HTTPException(status_code=400, detail="No futures/options account available")
+        account = sj.api.futopt_account
     return await sj.run_sync(_list_positions_sync, sj.api, account)
 
 
@@ -87,6 +92,8 @@ async def margin(request: Request) -> dict:
 async def profit_loss(request: Request) -> list[dict]:
     sj = request.app.state.sj
     sj.require_connected()
+    if sj.api.stock_account is None:
+        raise HTTPException(status_code=400, detail="No stock account available")
     return await sj.run_sync(_list_profit_loss_sync, sj.api, sj.api.stock_account)
 
 
