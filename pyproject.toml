@@ -15,9 +15,9 @@ dependencies = [
 
 [tool.uv.sources]
 nautilus-trader = [
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.224.0-fork-shioaji-adapter/nautilus_trader-1.224.0-cp313-cp313-manylinux_2_35_x86_64.whl", marker = "sys_platform == 'linux'" },
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.224.0-fork-shioaji-adapter/nautilus_trader-1.224.0-cp313-cp313-macosx_15_0_arm64.whl", marker = "sys_platform == 'darwin'" },
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.224.0-fork-shioaji-adapter/nautilus_trader-1.224.0-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32'" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.1-sinopac/nautilus_trader-1.226.1-cp313-cp313-manylinux_2_35_x86_64.whl", marker = "sys_platform == 'linux'" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.1-sinopac/nautilus_trader-1.226.1-cp313-cp313-macosx_15_0_arm64.whl", marker = "sys_platform == 'darwin'" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.1-sinopac/nautilus_trader-1.226.1-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32'" },
 ]
 
 [dependency-groups]
