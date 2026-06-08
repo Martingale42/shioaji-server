@@ -1,14 +1,14 @@
 {
   "pipeline": "instrument-definitions",
-  "current_batch": 1,
-  "current_step": "execute",
-  "step_detail": "Ready to begin Batch 1 (WS-A gateway contract fields) execution.",
-  "batches_completed": [],
+  "current_batch": 3,
+  "current_step": "done",
+  "step_detail": "PIPELINE COMPLETE. All 3 batches APPROVED WITH NOTES (B1 475fce9, B2 7f3ed62a@nautilus_trader, B3 2071cc6). QA PASS WITH ISSUES (ef874e7): 55 pytest + 85 cargo pass, ruff clean, 0 Critical/High/Medium bugs, 2 LOW notes. DEFERRED to a live-integration session (env lacks sinopac wheel + gateway creds + uv 0.11.6): (1) WS-D real catalog regen, (2) WS-C live==backtest same-instrument equality, (3) sinopac Python integration tests. HAND-OFF: build wheel from nautilus_trader@sinopac-adapter-clean -> reinstall into shioaji-server venv (replacing v1.224.0-fork-shioaji-adapter) -> bring up logged-in gateway:8000 -> run GATE probe (2330/futures/option) -> --dry-run -> real regen (keep backup until signoff).",
+  "batches_completed": ["batch_1", "batch_2", "batch_3"],
   "batches_in_progress": null,
-  "qa_status": null,
-  "executor_commits": {},
-  "review_verdict": {},
+  "qa_status": "PASS WITH ISSUES",
+  "executor_commits": {"batch_1": ["cf522cd", "0f813cf"], "batch_2": ["016b17b3", "ed739d9e"], "batch_3": ["05cfd80", "3c3b776"]},
+  "review_verdict": {"batch_1": "APPROVED WITH NOTES", "batch_2": "APPROVED WITH NOTES", "batch_3": "APPROVED WITH NOTES"},
   "fix_attempts": {},
-  "last_updated": "2026-06-08T00:00:00Z",
+  "last_updated": "2026-06-09T00:45:00Z",
   "notes": "Instrument-definitions pipeline from 3 plans: ws-a-gateway-contract-fields (B1, shioaji-server — add unit/multiplier/currency/underlying_code + fix enum .value serialization), ws-b-adapter-instrument-parse (B2, CROSS-REPO nautilus_trader@sinopac-adapter-clean — use Shioaji authoritative multiplier/unit/currency, fix option_right 'C'/'P', Rust rebuild), ws-cd-backtest-and-regen (B3, shioaji-server — retire make_equity for SinopacInstrumentProvider + regen existing catalog instrument defs). Hard dependency chain A->B->C+D. GATE: B3 Task 1 (provider path standalone vs gateway). DATA RED LINE: WS-D regen touches ONLY instrument defs, backup catalog first, never touch bar/tick. Consolidates instrument definitions on the adapter's Rust parse (one source for live + backtest)."
 }
