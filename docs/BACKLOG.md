@@ -57,4 +57,15 @@
 
 ---
 
+## BL-5 ·〔Medium〕期貨／選擇權 instrument 的 live 端到端驗證（instrument 定義管線 WS-B 延後項）
+
+- [ ] **狀態**：待辦（blocked，須在 live-integration session 進行）
+- **Repo / branch**：`shioaji-server` @ `main`（依賴 `nautilus_trader` @ `sinopac-adapter-clean` 的 sinopac wheel 已裝入 shioaji-server venv + gateway 已登入）
+- **類型**：verification / live integration
+- **背景**：2026-06-08 instrument 定義管線（WS-A…D）已修 WS-B 的 Rust parse——期貨／選擇權改用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降為 fallback），並修 `option_right` 對齊 gateway 的 `"C"`/`"P"`（選擇權不再全 `bail!`）。**Rust 單元測試（cargo 85/85）已涵蓋 parse 邏輯**（777/99 非表內值證明走權威路徑、`0` 證明回退、舊拼法 `"Call"` 仍 bail）。但**端到端**（gateway 真實合約 → `SinopacInstrumentProvider` → 建出 instrument）此前因環境缺 sinopac wheel + gateway creds 而延後；GATE probe／首次 live regen 先只驗 `2330`（股票）。
+- **驗收**：gateway 啟動後，經 provider 載入並比對——(1) 一個真實期貨代碼（如 `TXFG6` 之類近月）的 `multiplier` == Shioaji 合約值（非硬編碼 fallback），`lot_size` 來自 `unit`；(2) 一個真實 TXO 選擇權代碼建出 `OptionContract`（不 `bail!`），`option_right`/`strike_price`/`multiplier` 正確。記錄 commit／更新本票。
+- **參考**：`docs/plans/2026-06-08-ws-b-adapter-instrument-parse.md`、`docs/plans/2026-06-08-ws-cd-backtest-and-regen.md`（Task 1 GATE）、`docs/qa/2026-06-08-instruments-full-qa.md`（Deferred 區）、`docs/sessions/instruments/progress.json`。
+
+---
+
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S3–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
