@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import AggressorSide
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, TradeId, Venue
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, TradeId
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
@@ -44,20 +44,18 @@ def _tick_type_to_aggressor(tick_type: int) -> AggressorSide:
     return AggressorSide.NO_AGGRESSOR
 
 
-_TW = timezone(timedelta(hours=8))
-
-
 def _ns_to_trade_id(code: str, ts_ns: int) -> TradeId:
-    """Build TradeId matching the live Shioaji adapter convention: ``{code}-{datetime}``.
+    """Build TradeId matching the sinopac HTTP adapter convention: ``{code}-{ts_ns}``.
 
-    Live example: ``2330-2026-03-11 13:27:34.156677``
-    The Rust pyo3 adapter constructs this from ``tick.code`` + ``tick.datetime``
-    (microsecond-precision, Asia/Taipei wall-clock time).
+    The sinopac Rust HTTP parser builds ``format!("{}-{}", code, ts_ns)`` with the
+    raw nanosecond integer (``http/parse.rs:87``), which is unique per trade. The
+    previous microsecond ``strftime`` form collided for trades sharing the same
+    microsecond (proven 36/1922 dupes on a single day). The nanosecond integer
+    eliminates those collisions AND aligns historical download IDs with the live
+    HTTP adapter. ``ts_ns`` is the gateway-corrected true-UTC epoch, so the
+    resulting IDs match the live HTTP path exactly.
     """
-    dt = datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=_TW)
-    # Match the microsecond str format produced by Python's ``str(tick.datetime)``
-    dt_str = dt.strftime("%Y-%m-%d %H:%M:%S.%f")
-    return TradeId(f"{code}-{dt_str}")
+    return TradeId(f"{code}-{ts_ns}")
 
 
 def ticks_to_trade_ticks(

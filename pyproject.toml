@@ -37,3 +37,5 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Repo root on sys.path so tests can import the `scripts` package (not installed).
+pythonpath = ["."]
