@@ -21,15 +21,14 @@
 
 ---
 
-## BL-2 ·〔Low〕`scripts/fetch_single.py` 5× ruff F401 死 import
+## BL-2 ·〔Low〕`scripts/fetch_single.py` 5× ruff F401 死 import — ✅ 已修
 
-- [ ] **狀態**：待辦
+- [x] **狀態**：已修（`5ab7c8f` ruff --fix 移除 5 個 F401；後續 `05cfd80` WS-C 重構亦動此檔）
 - **Repo / branch**：`shioaji-server` @ `main`
 - **類型**：tech-debt / 清理（早於 2026-06-08 批次）
 - **背景**：`uv run ruff check scripts/fetch_single.py` 報 5 個 F401 未使用 import。`src/ tests/` 範圍全綠，僅此 scripts 檔殘留。
-- **提案**：`uv run ruff check --fix scripts/fetch_single.py`（應可自動移除），人工確認無誤刪後 commit。
-- **驗收**：`uv run ruff check scripts/` 乾淨。
-- **參考**：`docs/sessions/2026-06-08-post-report.md` §7.2。
+- **驗收**：`uv run ruff check scripts/` → All checks passed（已確認）。
+- **參考**：`docs/sessions/2026-06-08-post-report.md` §7.2。由 `docs/plans/2026-06-08-bl2-bl4-cleanups.md` Task 1 執行。
 
 ---
 
@@ -45,15 +44,14 @@
 
 ---
 
-## BL-4 ·〔Low〕`nautilus_trader/pyproject.toml` `exclude-newer = "3 days"` uv TOML parse warning
+## BL-4 ·〔Low〕`nautilus_trader/pyproject.toml` `exclude-newer = "3 days"` uv TOML parse warning — ✅ 已修
 
-- [ ] **狀態**：待辦
+- [x] **狀態**：已修（`f0317ffd21` 移除該鍵；`[tool.uv]` 現僅剩 `required-version = "==0.11.6"`）
 - **Repo / branch**：`nautilus_trader` @ `sinopac-adapter-clean`（fork）
 - **類型**：tech-debt / 工具設定噪音（早於 2026-06-08 批次）
-- **背景**：`pyproject.toml:121` `exclude-newer = "3 days"` 觸發 uv settings discovery 的 TOML parse warning（`failed to parse "3 da" as year...`）。pytest/build 仍正常全綠，純噪音。
-- **提案**：改為 uv 接受的 `exclude-newer` 格式（RFC 3339 timestamp，如 `"2026-01-01T00:00:00Z"`），或移除該鍵（確認用途後）。
-- **驗收**：`uv run ... pytest` 不再印該 warning。
-- **參考**：`docs/sessions/2026-06-08-post-report.md` §7.2。
+- **背景**：`pyproject.toml` `exclude-newer = "3 days"` 觸發 uv settings discovery 的 TOML parse warning（`failed to parse "3 da" as year...`）。pytest/build 仍正常全綠，純噪音。
+- **驗收**：`[tool.uv]` 不再含 `exclude-newer`（已確認 grep 無此鍵）。
+- **參考**：`docs/sessions/2026-06-08-post-report.md` §7.2。由 `docs/plans/2026-06-08-bl2-bl4-cleanups.md` Task 2 執行。
 
 ---
 
