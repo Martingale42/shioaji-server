@@ -1,24 +1,34 @@
 {
   "pipeline": "backlog-BL1-BL4",
-  "current_batch": 2,
-  "current_step": "execute",
-  "step_detail": "Batch 1 APPROVED WITH NOTES (sibling exclude-newer fixed). Starting Batch 2 (catalog metadata restamp).",
+  "current_batch": 3,
+  "current_step": "done",
+  "step_detail": "ALL BATCHES COMPLETE + QA PASSED. 141 tests, 0 bugs.",
   "batches_completed": [
     {
       "batch": 1,
       "verdict": "APPROVED WITH NOTES",
-      "commits": {
-        "BL-2": { "repo": "shioaji-server", "branch": "main", "sha": "5ab7c8f" },
-        "BL-4": { "repo": "nautilus_trader", "branch": "sinopac-adapter-clean", "sha": "f0317ffd21" },
-        "BL-4-sibling-fix": { "repo": "nautilus_trader", "branch": "sinopac-adapter-clean", "sha": "2280c79975" }
-      }
+      "summary": "BL-2 ruff F401 cleanup + BL-4 exclude-newer removal (root + python/)"
+    },
+    {
+      "batch": 2,
+      "verdict": "APPROVED WITH NOTES",
+      "summary": "BL-3 catalog metadata restamp: 10.6M ticks + 729K bars, true UTC preserved"
+    },
+    {
+      "batch": 3,
+      "verdict": "APPROVED WITH NOTES",
+      "summary": "BL-1 custom_field token adopt: cross-repo end-to-end, no duplicate external orders"
     }
   ],
   "batches_in_progress": null,
-  "qa_status": null,
-  "executor_commits": {},
-  "review_verdict": { "batch1": "APPROVED WITH NOTES" },
+  "qa_status": "PASS",
+  "qa_summary": {
+    "total_tests": 141,
+    "bugs": 0,
+    "data_integrity": "PASS — 10.6M ticks @ 2020-03-02T01:00 UTC, not re-shifted"
+  },
+  "review_verdict": { "batch1": "APPROVED WITH NOTES", "batch2": "APPROVED WITH NOTES", "batch3": "APPROVED WITH NOTES" },
   "fix_attempts": {},
-  "last_updated": "2026-06-08T01:30:00Z",
-  "notes": "Batch 1 complete. Reviewer found sibling exclude-newer in python/pyproject.toml — fixed. Moving to Batch 2 (BL-3 catalog metadata restamp, data red line, Task 1 is gate)."
+  "last_updated": "2026-06-08T04:00:00Z",
+  "notes": "Pipeline complete. 11 commits across 2 repos, 141 tests green, 0 bugs. Backup at catalog_pre_restamp_backup/ — safe to delete after user confirms."
 }
