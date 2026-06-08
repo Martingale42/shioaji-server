@@ -5,18 +5,19 @@
 
 ---
 
-## BL-1 ·〔Medium〕P3 超時單「真 adopt」路徑
+## BL-1 ·〔Medium〕P3 超時單「真 adopt」路徑 — ✅ 已修
 
-- [ ] **狀態**：待辦
-- **Repo / branch**：`nautilus_trader` @ `sinopac-adapter-clean`
+- [x] **狀態**：已修（custom_field token 往返，跨 repo 三筆 commit）
+- **Repo / branch**：`nautilus_trader` @ `sinopac-adapter-clean` + `shioaji-server` @ `main`
 - **類型**：enhancement / 真實下單對帳
 - **背景**：Batch 3 P3（commit `4f6bb70253`）已把 HTTP 超時從「一律 reject」改為「保留 `SUBMITTED` 待對帳」，消除了「回報 REJECTED 但 venue 持有活單」的隱性曝險。但超時單**沒有 `venue_order_id`**（`trade_id` 在逾時的回應裡），對帳 `generate_order_status_reports` 以合成 `ClientOrderId("SINOPAC-{trade_id}")` + `VenueOrderId(trade_id)` 重建報告 → NT 較可能將其當**外部單新建**，而非 adopt 原本地 `SUBMITTED` 單，可能殘留一張重影。此為**已知、已如實註解**的收斂限制，非乾淨 adopt。
-- **提案（擇一）**：
-  1. `_submit_order` 送出前先以 `client_order_id` 暫存 venue 對應（樂觀映射），WS/對帳回來時據此 adopt；
-  2. 對帳階段把合成 `SINOPAC-{trade_id}` 單映回原 `client_order_id`。
-- **驗收**：超時後才成交的單收斂到**同一張** NT order（無重影外部單）+ 一條對帳收斂測試。
-- **風險**：動 NT 對帳/外部單合併管線，需回歸現有 sinopac 整合測試。
-- **參考**：`execution.py:443-467`、`:620-633`；`nautilus_trader/docs/reviews/2026-06-08-batch-3-review.md`（I2）；現況守衛測試 `test_p3_reconciliation_surfaces_timed_out_order_as_external`。
+- **修復方案**：以 `custom_field`（Shioaji `ConStrAsciiMax6`）做 deterministic blake2s token 往返：`_submit_order` 將 `client_order_id` 的 6-char base62 hash 寫入 `custom_field` → gateway 透傳 → WS 委託事件 / `list_trades` 回傳 token → adapter 反查 `_coid_token` 還原原始 `client_order_id` → NT `LiveExecutionEngine` adopt 原單。Deal 事件不帶 `custom_field`，靠先前 order-status 事件回填的映射解決。
+- **驗收**：超時後才成交的單收斂到**同一張** NT order（無重影外部單）+ 8 條 BL-1 整合測試全綠。
+- **跨 repo commits**：
+  - `shioaji-server` @ `main`：`2139ed2` — gateway 下單透傳 custom_field 並於成交清單回傳
+  - `nautilus_trader` @ `sinopac-adapter-clean`：`451ebf3` — Rust 透傳 custom_field（下單請求 + 委託/成交事件 + list_trades）
+  - `nautilus_trader` @ `sinopac-adapter-clean`：`9df0581` — 超時單以 custom_field token 還原 client_order_id，對帳乾淨 adopt
+- **參考**：`docs/plans/2026-06-08-bl1-p3-adopt.md`；原守衛測試 `test_p3_reconciliation_surfaces_timed_out_order_as_external` 已拆為 `test_p3_reconciliation_with_token_adopts_timed_out_order` + `test_p3_reconciliation_without_token_falls_back_to_synthetic`。
 
 ---
 
