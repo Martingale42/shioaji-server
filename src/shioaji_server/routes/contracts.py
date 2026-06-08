@@ -5,19 +5,36 @@ from shioaji_server.models import FuturesContract, OptionsContract, StockContrac
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 
 
+def _enum_value(value, default: str = ""):
+    """Return a Shioaji enum's wire value, tolerating plain strings / None.
+
+    Shioaji constants (Currency/OptionRight/DayTrade/Exchange) subclass ``str``
+    and carry a short code on ``.value`` ("TWD", "C"/"P", "Yes"/"No", "TSE").
+    ``str(enum)`` would emit the qualified member name (e.g. "Currency.TWD"),
+    which downstream adapters cannot parse, so we always prefer ``.value``.
+    Falls back to ``str(value)`` for non-enum inputs and ``default`` for None.
+    """
+    if value is None:
+        return default
+    return getattr(value, "value", str(value))
+
+
 def _stock_to_dict(contract) -> dict:
     """Convert Shioaji stock contract to serializable dict."""
     return {
         "code": contract.code,
         "symbol": contract.symbol,
         "name": contract.name,
-        "exchange": str(contract.exchange),
+        "exchange": _enum_value(contract.exchange),
         "category": contract.category,
         "limit_up": float(contract.limit_up),
         "limit_down": float(contract.limit_down),
         "reference": float(contract.reference),
         "update_date": contract.update_date,
-        "day_trade": str(contract.day_trade),
+        "day_trade": _enum_value(getattr(contract, "day_trade", None)),
+        "currency": _enum_value(getattr(contract, "currency", None)),
+        "unit": getattr(contract, "unit", 0),
+        "multiplier": getattr(contract, "multiplier", 0),
     }
 
 
@@ -34,13 +51,17 @@ def _futures_to_dict(contract) -> dict:
         "limit_down": float(contract.limit_down),
         "reference": float(contract.reference),
         "update_date": contract.update_date,
+        "currency": _enum_value(getattr(contract, "currency", None)),
+        "unit": getattr(contract, "unit", 0),
+        "multiplier": getattr(contract, "multiplier", 0),
+        "underlying_code": getattr(contract, "underlying_code", ""),
     }
 
 
 def _options_to_dict(contract) -> dict:
     d = _futures_to_dict(contract)
     d["strike_price"] = float(contract.strike_price)
-    d["option_right"] = str(contract.option_right)
+    d["option_right"] = _enum_value(getattr(contract, "option_right", None))
     return d
 
 
