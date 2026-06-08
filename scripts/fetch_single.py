@@ -13,10 +13,9 @@ import asyncio
 from datetime import date
 from pathlib import Path
 
-from nautilus_trader.model.data import BarSpecification, BarType
-from nautilus_trader.model.enums import BarAggregation, PriceType
-from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
-from nautilus_trader.model.objects import Currency, Price, Quantity
+from nautilus_trader.model.data import BarType
+from nautilus_trader.model.identifiers import InstrumentId, Symbol
+from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.model.instruments import Equity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
