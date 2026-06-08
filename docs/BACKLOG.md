@@ -68,4 +68,25 @@
 
 ---
 
+## BL-6 ·〔Tracking〕Shioaji→NT instrument 定義管線 — 程式碼完成，live-integration 延後
+
+- [~] **狀態**：程式碼完成（3 batches 全 APPROVED WITH NOTES + QA PASS WITH ISSUES，0 Critical/High/Medium、2 LOW notes）；**live-integration 三項延後**（須在 live-integration session 跑）。
+- **Repo / branch**：`shioaji-server` @ `main` + `nautilus_trader` @ `sinopac-adapter-clean`
+- **類型**：feature（instrument 定義對齊 adapter 單一來源）+ deferred live verification
+- **背景**：對齊 sinopac adapter 的 Rust parse 為 live + backtest 的**單一** instrument 定義來源。WS-A gateway 補 `unit`/`multiplier`/`currency`/`underlying_code` + 修 enum `.value` 序列化；WS-B adapter parse 用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降 fallback）+ 修 `option_right` `"C"`/`"P"`（選擇權不再全 `bail!`）；WS-C 退役 `make_equity` 改用 `SinopacInstrumentProvider`；WS-D 重生既存 catalog instrument 定義。
+- **已完成 commits**：
+  - B1（WS-A，`shioaji-server`@`main`）：`cf522cd`、`0f813cf`；review `475fce9`
+  - B2（WS-B，`nautilus_trader`@`sinopac-adapter-clean`）：`016b17b3`、`ed739d9e`；review `7f3ed62a`
+  - B3（WS-C+D，`shioaji-server`@`main`）：`05cfd80`、`3c3b776`；review `2071cc6`
+  - QA：`ef874e7`（PASS WITH ISSUES：55 pytest + 85 cargo pass、ruff clean）
+- **延後的 live-integration 三項**（blocked — env 缺 sinopac wheel + gateway creds + uv 0.11.6，見 gotchas）：
+  1. **WS-D 真實 catalog regen** — 用同源 provider 重生既存 instrument 定義（目前只 dry-run 過邏輯，未對真實 catalog 執行）。
+  2. **WS-C live == backtest 同 instrument 等價驗證** — backtest 腳本與 live node 載入同一 id 應得到完全相同的 instrument。
+  3. **sinopac Python 整合測試** — `tests/integration_tests/adapters/sinopac/`（需裝好 sinopac wheel 的 venv）。
+- **Hand-off 步驟**：從 `nautilus_trader`@`sinopac-adapter-clean` build wheel → 裝回 shioaji-server venv（取代 `v1.224.0-fork-shioaji-adapter`）→ 啟動已登入 gateway:8000 → 跑 GATE probe（`2330`/期貨/選擇權）→ `--dry-run` → real regen（備份保留至 signoff）。
+- **關聯**：**BL-5** 是本管線 WS-B「期貨／選擇權 live 驗證」的細項（GATE probe 的一部分）；兩票一起在 live-integration session 收。
+- **參考**：`docs/plans/2026-06-08-instrument-definitions-design.md`、三份 `docs/plans/2026-06-08-ws-*.md`、`docs/reviews/2026-06-08-instrument-definition-review.md`、`docs/qa/2026-06-08-instruments-full-qa.md`、`docs/sessions/instruments/`（orchestrator/progress）。
+
+---
+
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S3–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
