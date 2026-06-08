@@ -34,6 +34,7 @@ class ShioajiClient:
     _manager: ConnectionManager | None = None
     _reconnecting: bool = False
     _reconnect_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _probe_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def _login_sync(
         self,
@@ -122,7 +123,10 @@ class ShioajiClient:
             call raises ``ShioajiConnectionError ... SessionNotEstablished``.
         Domain:     Returns False immediately when not logged in. The probe result
             is cached for ``session_probe_ttl`` seconds so frequent health checks
-            do not exhaust the accounting-query rate limit (25 req / 5 s). The probe
+            do not exhaust the accounting-query rate limit (25 req / 5 s). A
+            single-flight ``_probe_lock`` collapses concurrent callers onto one
+            in-flight ``usage`` call (others await it and read the fresh cache),
+            so a burst of health checks cannot multiply the quota cost. The probe
             runs in the executor under a ``session_probe_timeout`` ceiling so a hung
             backend cannot block the event loop. Pass ``force=True`` to bypass cache.
         Returns:    True if the backend session is responsive, False otherwise.
@@ -136,16 +140,27 @@ class ShioajiClient:
             and (now - self._session_checked_at) < self.session_probe_ttl
         ):
             return self._session_ok
-        try:
-            await asyncio.wait_for(
-                self.run_sync(self.api.usage),
-                timeout=self.session_probe_timeout,
-            )
-            self._session_ok = True
-        except Exception:
-            self._session_ok = False
-        self._session_checked_at = time.monotonic()
-        return self._session_ok
+        async with self._probe_lock:
+            # Re-check the cache inside the lock: while we waited for it, a
+            # concurrent caller may have just refreshed the probe, so we can
+            # serve its result without firing another usage() call.
+            now = time.monotonic()
+            if (
+                not force
+                and self._session_checked_at >= 0.0
+                and (now - self._session_checked_at) < self.session_probe_ttl
+            ):
+                return self._session_ok
+            try:
+                await asyncio.wait_for(
+                    self.run_sync(self.api.usage),
+                    timeout=self.session_probe_timeout,
+                )
+                self._session_ok = True
+            except Exception:
+                self._session_ok = False
+            self._session_checked_at = time.monotonic()
+            return self._session_ok
 
     def resolve_contract(self, code: str):
         """Resolve a contract by code: stocks, then futures, then options."""

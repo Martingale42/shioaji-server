@@ -8,6 +8,8 @@ state, not merely the login flag.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import MagicMock
 
 from shioaji_server.client import ShioajiClient
@@ -63,3 +65,27 @@ async def test_force_bypasses_cache():
     await client.check_session(force=True)
     await client.check_session(force=True)
     assert client.api.usage.call_count == 2
+
+
+async def test_concurrent_probes_are_single_flight():
+    """A burst of concurrent check_session() must fire usage() only once.
+
+    Regression for the unguarded-probe quota leak: without the in-flight
+    _probe_lock, N concurrent callers each issued api.usage(), multiplying the
+    accounting-query cost (limit 25/5s). The lock collapses them onto one probe;
+    the rest await it and read the freshly-cached result.
+    """
+    client = _client()
+
+    # Make the probe slow enough that all callers pile up on the lock before
+    # the first one finishes and populates the cache (runs in the executor).
+    def slow_usage():
+        time.sleep(0.05)
+        return MagicMock()
+
+    client.api.usage.side_effect = slow_usage
+
+    results = await asyncio.gather(*(client.check_session() for _ in range(10)))
+
+    assert all(results)  # all callers see a live session
+    client.api.usage.assert_called_once()  # but only one real probe fired
