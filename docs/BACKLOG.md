@@ -68,7 +68,7 @@
 
 ## BL-6 ·〔Tracking〕Shioaji→NT instrument 定義管線 — 程式碼完成，live-integration 延後
 
-- [~] **狀態**：程式碼完成（3 batches 全 APPROVED WITH NOTES + QA PASS WITH ISSUES，0 Critical/High/Medium、2 LOW notes）；**live-integration 三項延後**（須在 live-integration session 跑）。
+- [~] **狀態**：程式碼完成（3 batches 全 APPROVED WITH NOTES + QA PASS WITH ISSUES）；**live-integration 已大致收口**——sinopac wheel 已建並裝入 venv、gateway 已起、2330 GATE probe 過、WS-D 真實 regen 已完成且資料紅線守住；**剩 BL-5（期貨/選擇權）+ sinopac py 整合測試**。live regen 過程中發現並修掉 ETF tick 階 bug（見下）。
 - **Repo / branch**：`shioaji-server` @ `main` + `nautilus_trader` @ `sinopac-adapter-clean`
 - **類型**：feature（instrument 定義對齊 adapter 單一來源）+ deferred live verification
 - **背景**：對齊 sinopac adapter 的 Rust parse 為 live + backtest 的**單一** instrument 定義來源。WS-A gateway 補 `unit`/`multiplier`/`currency`/`underlying_code` + 修 enum `.value` 序列化；WS-B adapter parse 用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降 fallback）+ 修 `option_right` `"C"`/`"P"`（選擇權不再全 `bail!`）；WS-C 退役 `make_equity` 改用 `SinopacInstrumentProvider`；WS-D 重生既存 catalog instrument 定義。
@@ -77,12 +77,13 @@
   - B2（WS-B，`nautilus_trader`@`sinopac-adapter-clean`）：`016b17b3`、`ed739d9e`；review `7f3ed62a`
   - B3（WS-C+D，`shioaji-server`@`main`）：`05cfd80`、`3c3b776`；review `2071cc6`
   - QA：`ef874e7`（PASS WITH ISSUES：55 pytest + 85 cargo pass、ruff clean）
-- **延後的 live-integration 三項**（blocked — env 缺 sinopac wheel + gateway creds + uv 0.11.6，見 gotchas）：
-  1. **WS-D 真實 catalog regen** — 用同源 provider 重生既存 instrument 定義（目前只 dry-run 過邏輯，未對真實 catalog 執行）。
-  2. **WS-C live == backtest 同 instrument 等價驗證** — backtest 腳本與 live node 載入同一 id 應得到完全相同的 instrument。
-  3. **sinopac Python 整合測試** — `tests/integration_tests/adapters/sinopac/`（需裝好 sinopac wheel 的 venv）。
-- **Hand-off 步驟**：從 `nautilus_trader`@`sinopac-adapter-clean` build wheel → 裝回 shioaji-server venv（取代 `v1.224.0-fork-shioaji-adapter`）→ 啟動已登入 gateway:8000 → 跑 GATE probe（`2330`/期貨/選擇權）→ `--dry-run` → real regen（備份保留至 signoff）。
-- **關聯**：**BL-5** 是本管線 WS-B「期貨／選擇權 live 驗證」的細項（GATE probe 的一部分）；兩票一起在 live-integration session 收。
+- **live-integration 進度**（2026-06-09 session）：
+  1. ✅ **wheel 建置鏈打通** — fork wheel `v1.226.1-sinopac`（WS-B）→ 發現 ETF bug → `v1.226.2-sinopac`（ETF 修正）已建並 pin 進 shioaji-server venv（`uv.lock` gitignored；pin commit `0926529`→`9f2b77f`）。見 [[nautilus-fork-wheel-release]]。
+  2. ✅ **WS-D 真實 catalog regen 完成** — `0050.SINOPAC` tick `0.01→0.05`、`00631L.SINOPAC` 維持 `0.01`；bar/tick 筆數 + first ts_event 前後一致（紅線守住）；備份 `catalog_pre_instrument_regen_backup/`（345M，保留至 signoff）、marker `catalog/.instruments_regenerated` 已寫。
+  3. ✅ **2330 GATE probe 過** — provider 建出 `2330.SINOPAC` Equity，tick 5.0 / lot 1000 / TWD。
+  4. ⏳ **剩**：**BL-5**（期貨/選擇權 live 端到端）；**WS-C** backtest==live 同 instrument 等價的正式比對；**sinopac Python 整合測試** `tests/integration_tests/adapters/sinopac/`（uv 版本門檻見 [[gotcha-nautilus-uv-version-pin]]）。
+- **🐛 live regen 發現並修掉的 bug（ETF tick 階）**：adapter `parse_stock_to_equity` 對所有 equity 套 `twse_stock_tick_size`，但 ETF（TWSE `category "00"`）tick 階不同（`<50→0.01`、`≥50→0.05`）→ 0050 算成 0.50、00631L 算成 0.05 皆錯。修法：新增 `twse_etf_tick_size` + `category=="00"` 分流 + 6 條測試（cargo 91 全綠）。commit `nautilus_trader`@`sinopac-adapter-clean` `b053a6a`，wheel `v1.226.2-sinopac`。**preview-before-mutate 擋下了壞 tick 寫入 production**。
+- **關聯**：**BL-5** 是本管線 WS-B「期貨／選擇權 live 驗證」的細項；下次 live session 收。
 - **參考**：`docs/plans/2026-06-08-instrument-definitions-design.md`、三份 `docs/plans/2026-06-08-ws-*.md`、`docs/reviews/2026-06-08-instrument-definition-review.md`、`docs/qa/2026-06-08-instruments-full-qa.md`、`docs/sessions/instruments/`（orchestrator/progress）。
 
 ---
