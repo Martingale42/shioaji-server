@@ -182,6 +182,7 @@ class PlaceOrderRequest(BaseModel):
     order_cond: OrderCond = Field(default=OrderCond.CASH, description="Cash/MarginTrading/ShortSelling (stocks only)")
     order_lot: OrderLot = Field(default=OrderLot.COMMON, description="Common/Odd/IntradayOdd/Fixing (stocks only)")
     market: str = Field(default="stock", description="'stock', 'futures', or 'options'")
+    custom_field: str = Field(default="", description="Free-form tag (max 6 ASCII chars, truncated). Used by the adapter to round-trip a client_order_id token for timed-out order adoption.")
 
 
 class UpdateOrderRequest(BaseModel):
@@ -209,6 +210,7 @@ class TradeInfo(BaseModel):
     status: str = Field(description="Order status (e.g. PendingSubmit, Submitted, Filled, Cancelled, Failed)")
     order_type: str = Field(description="ROD/IOC/FOK")
     price_type: str = Field(description="LMT/MKT/MKP")
+    custom_field: str = Field(default="", description="Adapter token (max 6 ASCII) for order adoption")
 
 
 # --- Account ---

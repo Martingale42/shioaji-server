@@ -75,6 +75,7 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
             order_cond=order_cond,
             order_lot=order_lot,
             account=api.stock_account,
+            custom_field=req.custom_field[:6],
         )
     else:
         price_type = getattr(sj.constant.FuturesPriceType, req.price_type)
@@ -86,6 +87,7 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
             order_type=getattr(sj.constant.OrderType, req.order_type),
             octype=sj.constant.FuturesOCType.Auto,
             account=api.futopt_account,
+            custom_field=req.custom_field[:6],
         )
 
     try:
@@ -154,6 +156,7 @@ async def list_trades(request: Request) -> list[dict]:
             "status": str(t.status.status),
             "order_type": str(t.order.order_type),
             "price_type": str(t.order.price_type),
+            "custom_field": getattr(t.order, "custom_field", ""),
         }
         for t in trades
     ]
