@@ -34,9 +34,11 @@
 |------|------|--------|
 | 下載腳本 | `{code}-{TW datetime 微秒字串}` `scripts/fetch_single_ticks.py:50` | ❌ 同微秒多筆重複（實證單日 36/1922） |
 | sinopac HTTP | `{code}-{納秒整數}` `crates/.../http/parse.rs:87` | ✅ 納秒唯一 |
-| sinopac 訂單成交 | `{trade_id}-{ordno}` `nautilus_trader/.../execution.py:354` | ❌ partial fill 重複（見 4.2 #1） |
+| sinopac 訂單成交 | `{trade_id}-{ordno}` `nautilus_trader/.../execution.py:354` | ⚠️ 原判「重複」**有誤**，見 §1 末更正（deal-level `ordno` 末 3 碼即成交序號，逐筆唯一） |
 
 下載腳本應對齊 sinopac HTTP（改用納秒整數），順帶消除重複。
+
+> **⚠️ 更正（2026-06-08，Batch 3 審查後）**：上表「sinopac 訂單成交 `{trade_id}-{ordno}` → ❌ partial fill 重複」之判定**有誤**。依官方文件 [order_deal_event](https://sinotrade.github.io/tutor/order_deal_event/)，成交事件的 `ordno` ＝「5 碼委託 ordno ＋ 末 3 碼成交序號（001/002/003…）」，**本來就逐筆唯一**，原 `{trade_id}-{ordno}` 並不重複。真正逐單相同（不可作鍵）的是 `seqno`（「the seqno in the order is the same as seqno in the deals」）。逐筆唯一鍵應為 `exchange_seq` 或 deal-level `ordno`。詳見 §4.2 P1 更正與 `docs/reviews/2026-06-08-batch-3-review.md`。
 
 ---
 
@@ -85,13 +87,16 @@
 
 | # | 嚴重 | 發現 | 位置 | 修復方向 |
 |---|------|------|------|----------|
-| P1 | 🔴 | partial fill 用 `ordno` 建 TradeId → 同訂單多筆成交重複 ID、帳本損毀 | `execution.py:354` + `order_parse.rs set_deal_fields` | 用全域唯一 `seqno`（Rust 已有，需透傳） |
+| P1 | 🔴 | partial fill TradeId 唯一性 ⚠️**原前提有誤，見下方更正** | `execution.py:354` + `order_parse.rs set_deal_fields` | ~~用全域唯一 `seqno`~~ → 改用 `exchange_seq`／deal-level `ordno`；**`seqno` 逐單不可作鍵** |
 | P2 | 🟠 | HTTP accepted 後 WS "New" 失敗 → ACCEPTED→REJECTED 非法狀態轉移、狀態機崩 | `execution.py:259-265` | 末態訂單不再 reject，檢查現狀 |
 | P3 | 🟠 | HTTP 超時即 reject 但訂單可能已成交、mapping 未設 → 隱性曝險 | `execution.py:424-431` | 超時保留 pending/accepted，待 WS/對帳補全 |
 | P4 | 🟡 | `instrument=None` 未防守 → 期貨單以 STOCK 市場送出 | `execution.py:397` | None 則 reject |
 | P5 | 🟡 | 帳戶 `locked=0` 硬編碼 → 可用資金高估 | `execution.py:193` | 接 `/account/margin` |
 | P6 | 🟡 | 對帳 `filled_qty` 恆 0（Rust `TradeInfo` 無此欄位）→ 重連重複送單 | `execution.py:592` | Rust model 補 filled_qty |
 | P7 | ⚪ | `lru_cache` 快取 mutable handler list、子訂單共用 command_id | `factories.py:116`、`execution.py:522` | 移除快取 / 各自 UUID |
+
+> **⚠️ P1 更正（2026-06-08，Batch 3 審查後）**：原「修復方向：用全域唯一 `seqno`」是**錯的**——對成交事件而言 `seqno` ＝ 委託 seqno，**同一張單所有 partial fill 相同**，作 TradeId 鍵反而製造重複、損毀帳本。真正逐筆唯一的是 `exchange_seq`（交易所成交序號）與 deal-level `ordno`（末 3 碼為成交序號）。
+> 第一次實作（commit `d47036a79c`）依原前提改用 `seqno` → 屬**回歸**，已於審查攔截並修正：鍵改為 `event.get("exchange_seq") or ordno`（Rust 透傳 `exchange_seq`），commit `85ee21e2e8`。依據：官方 [order_deal_event](https://sinotrade.github.io/tutor/order_deal_event/)；詳見 `nautilus_trader` repo `docs/reviews/2026-06-08-batch-3-review.md`（C1）。**教訓：成交回報欄位唯一性以官方文件／實倉 multi-fill 回報為準，勿憑靜態分析臆測。**
 
 ---
 
