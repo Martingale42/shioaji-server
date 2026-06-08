@@ -5,11 +5,11 @@ import os
 from contextlib import asynccontextmanager
 from functools import partial
 
-import shioaji as sj
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
 from shioaji_server.client import ShioajiClient
 from shioaji_server.errors import runtime_error_handler
+from shioaji_server.models import HealthResponse
 from shioaji_server.routes.account import router as account_router
 from shioaji_server.routes.auth import router as auth_router
 from shioaji_server.routes.contracts import router as contracts_router
@@ -103,29 +103,30 @@ app.include_router(account_router)
 app.add_exception_handler(RuntimeError, runtime_error_handler)
 
 
-@app.get("/api/health", summary="Health check", description="Returns server status and Shioaji connection state.", tags=["system"])
+@app.get(
+    "/api/health",
+    response_model=HealthResponse,
+    summary="Health check",
+    description=(
+        "Returns server status and **live** Shioaji backend session state. "
+        "`connected` is True only when logged in AND the backend session actually "
+        "responds (probed via a lightweight usage call, cached briefly to respect "
+        "the accounting rate limit). `logged_in` reflects the login flag alone and "
+        "`session_alive` the probe result — together they distinguish 'never logged "
+        "in' from 'session silently dropped'."
+    ),
+    tags=["system"],
+)
 async def health(request: Request) -> dict:
-    return {"status": "ok", "connected": request.app.state.sj.connected}
-
-
-def _resolve_contract(sj_client: ShioajiClient, code: str):
-    """Try stocks first, then futures, then options."""
-    c = sj_client.api.Contracts.Stocks.get(code)
-    if c:
-        return c
-    c = sj_client.api.Contracts.Futures.get(code)
-    if c:
-        return c
-    c = sj_client.api.Contracts.Options.get(code)
-    if c:
-        return c
-    raise ValueError(f"Contract {code} not found")
-
-
-def _to_quote_type(quote_type: str) -> sj.constant.QuoteType:
-    if quote_type == "tick":
-        return sj.constant.QuoteType.Tick
-    return sj.constant.QuoteType.BidAsk
+    sj_client = request.app.state.sj
+    logged_in = sj_client.connected
+    session_alive = await sj_client.check_session()
+    return {
+        "status": "ok",
+        "connected": logged_in and session_alive,
+        "logged_in": logged_in,
+        "session_alive": session_alive,
+    }
 
 
 async def _unsubscribe_orphaned(
@@ -134,8 +135,8 @@ async def _unsubscribe_orphaned(
     """Unsubscribe Shioaji quotes for keys with no remaining WS clients."""
     for code, quote_type in orphaned:
         try:
-            contract = _resolve_contract(sj_client, code)
-            qt = _to_quote_type(quote_type)
+            contract = sj_client.resolve_contract(code)
+            qt = sj_client.to_quote_type(quote_type)
             await sj_client.run_sync(
                 partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
             )
@@ -165,8 +166,8 @@ async def websocket_endpoint(ws: WebSocket):
             if action == "subscribe":
                 is_new = manager.subscribe(ws, code, quote_type)
                 if is_new:
-                    contract = _resolve_contract(sj_client, code)
-                    qt = _to_quote_type(quote_type)
+                    contract = sj_client.resolve_contract(code)
+                    qt = sj_client.to_quote_type(quote_type)
                     await sj_client.run_sync(
                         partial(sj_client.api.quote.subscribe, contract, quote_type=qt),
                     )
@@ -177,8 +178,8 @@ async def websocket_endpoint(ws: WebSocket):
             elif action == "unsubscribe":
                 is_empty = manager.unsubscribe(ws, code, quote_type)
                 if is_empty:
-                    contract = _resolve_contract(sj_client, code)
-                    qt = _to_quote_type(quote_type)
+                    contract = sj_client.resolve_contract(code)
+                    qt = sj_client.to_quote_type(quote_type)
                     await sj_client.run_sync(
                         partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
                     )

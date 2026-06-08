@@ -29,6 +29,15 @@ class StatusResponse(BaseModel):
     simulation: bool = Field(description="Whether running in simulation mode")
 
 
+class HealthResponse(BaseModel):
+    """Server health and live backend session state."""
+
+    status: str = Field(description="Server process status — 'ok' if the app is responding")
+    connected: bool = Field(description="True only if logged in AND the backend session is live (probed)")
+    logged_in: bool = Field(description="Whether the Shioaji login flag is set")
+    session_alive: bool = Field(description="Whether the backend Solace session actually responds")
+
+
 # --- Contracts ---
 
 

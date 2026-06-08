@@ -20,6 +20,7 @@ build: ## Build Docker image
 .PHONY: up
 up: _ensure-build _ensure-env _ensure-log ## Start server (simulation, detached)
 	docker run -d --name $(CONTAINER) \
+		--restart unless-stopped \
 		-p $(PORT):8000 \
 		-v $(ENV_FILE):/app/.env:ro \
 		-v $(CA_FILE):/app/Sinopac.pfx:ro \
@@ -32,6 +33,7 @@ up: _ensure-build _ensure-env _ensure-log ## Start server (simulation, detached)
 .PHONY: up-live
 up-live: _ensure-build _ensure-env _ensure-log ## Start server (LIVE, detached)
 	docker run -d --name $(CONTAINER) \
+		--restart unless-stopped \
 		-p $(PORT):8000 \
 		-v $(ENV_FILE):/app/.env:ro \
 		-v $(CA_FILE):/app/Sinopac.pfx:ro \

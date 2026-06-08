@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
@@ -27,6 +28,30 @@ def _load_env() -> None:
             return
 
 
+def _configure_logging(log_level: str) -> None:
+    """Configure root logging with console + a rotating file handler.
+
+    The file handler writes to ``SHIOAJI_LOG_FILE`` (default ``server.log``,
+    bind-mounted to the host in Docker), so session-down / re-login events and
+    errors survive container restarts. Previously the gateway logged only to
+    stdout → docker logs, which were lost when the container was recreated,
+    making intermittent deaths impossible to diagnose after the fact.
+    """
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    log_file = os.environ.get("SHIOAJI_LOG_FILE", "server.log")
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        handlers.append(
+            RotatingFileHandler(log_file, maxBytes=10 * 1024 * 1024, backupCount=3)
+        )
+    except OSError:
+        logging.getLogger(__name__).warning(
+            "Cannot open log file %s — console logging only", log_file
+        )
+    logging.basicConfig(level=level, format=fmt, handlers=handlers)
+
+
 def main():
     simulation = "--live" not in sys.argv
     os.environ.setdefault("SHIOAJI_SIMULATION", str(simulation).lower())
@@ -37,7 +62,7 @@ def main():
     port = int(os.environ.get("SHIOAJI_SERVER_PORT", "8000"))
 
     log_level = os.environ.get("SHIOAJI_LOG_LEVEL", "info").lower()
-    logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
+    _configure_logging(log_level)
 
     uvicorn.run(
         "shioaji_server.app:app",
