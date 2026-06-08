@@ -1,0 +1,14 @@
+{
+  "pipeline": "instrument-definitions",
+  "current_batch": 1,
+  "current_step": "execute",
+  "step_detail": "Ready to begin Batch 1 (WS-A gateway contract fields) execution.",
+  "batches_completed": [],
+  "batches_in_progress": null,
+  "qa_status": null,
+  "executor_commits": {},
+  "review_verdict": {},
+  "fix_attempts": {},
+  "last_updated": "2026-06-08T00:00:00Z",
+  "notes": "Instrument-definitions pipeline from 3 plans: ws-a-gateway-contract-fields (B1, shioaji-server — add unit/multiplier/currency/underlying_code + fix enum .value serialization), ws-b-adapter-instrument-parse (B2, CROSS-REPO nautilus_trader@sinopac-adapter-clean — use Shioaji authoritative multiplier/unit/currency, fix option_right 'C'/'P', Rust rebuild), ws-cd-backtest-and-regen (B3, shioaji-server — retire make_equity for SinopacInstrumentProvider + regen existing catalog instrument defs). Hard dependency chain A->B->C+D. GATE: B3 Task 1 (provider path standalone vs gateway). DATA RED LINE: WS-D regen touches ONLY instrument defs, backup catalog first, never touch bar/tick. Consolidates instrument definitions on the adapter's Rust parse (one source for live + backtest)."
+}
