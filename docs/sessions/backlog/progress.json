@@ -1,0 +1,14 @@
+{
+  "pipeline": "backlog-BL1-BL4",
+  "current_batch": 1,
+  "current_step": "execute",
+  "step_detail": "Ready to begin Batch 1 (Mechanical cleanups BL-2 + BL-4) execution.",
+  "batches_completed": [],
+  "batches_in_progress": null,
+  "qa_status": null,
+  "executor_commits": {},
+  "review_verdict": {},
+  "fix_attempts": {},
+  "last_updated": "2026-06-08T00:00:00Z",
+  "notes": "Backlog pipeline initialized from 3 plans: bl2-bl4-cleanups (B1, cross-repo shioaji-server+nautilus_trader), bl3-catalog-metadata-restamp (B2, shioaji-server, Task1 gate, data red line — values already true UTC, repair metadata/schema only), bl1-p3-adopt (B3, cross-repo, real-money, Rust rebuild, Task1 feasibility gate on custom_field round-trip). GATES: B2 T1 (must be already-shifted/uniformly-damaged), B3 T1 (a Shioaji event must carry custom_field)."
+}
