@@ -20,3 +20,9 @@ README.md
 # Git
 .git/
 .gitignore
+
+# Data / catalogs — never in build context (Dockerfile only COPYs pyproject + src/)
+catalog/
+catalog_pre_*/
+results/
+*.parquet
