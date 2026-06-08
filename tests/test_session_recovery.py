@@ -113,3 +113,48 @@ async def test_concurrent_session_down_collapses_to_one():
         client._handle_session_down(),
     )
     assert attempts["n"] == 1  # second concurrent down collapsed into the first
+
+
+async def test_resubscribe_retries_until_contracts_ready(monkeypatch):
+    """After re-login the contract table may still be loading; resolve_contract
+    transiently fails then succeeds — the stream must be retried, not dropped.
+    """
+    client = _down_client()
+    client.resubscribe_max_attempts = 4
+    client._manager = MagicMock()
+    client._manager.subscriptions = {("2330", "tick"): set()}
+    calls = {"resolve": 0, "sub": 0}
+
+    def flaky_resolve(code):
+        calls["resolve"] += 1
+        if calls["resolve"] < 3:
+            raise ValueError("Contract not found")  # contracts still loading
+        return f"contract:{code}"
+
+    async def fake_run_sync(fn, *args):
+        calls["sub"] += 1
+
+    monkeypatch.setattr(client, "resolve_contract", flaky_resolve)
+    monkeypatch.setattr(client, "run_sync", fake_run_sync)
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())  # skip the 1s retry waits
+    await client._resubscribe()
+    assert calls["resolve"] == 3  # retried until contracts became ready
+    assert calls["sub"] == 1  # subscribed exactly once after success
+
+
+async def test_relogin_holds_lock_serializing_with_login(monkeypatch):
+    """_relogin must hold _lock so it cannot rebuild self.api concurrently with
+    login() (which would orphan a Solace connection and leak it).
+    """
+    client = _down_client()
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    client._manager = None  # skip re-register/resubscribe for this check
+
+    # Hold _lock; _relogin must block until released.
+    await client._lock.acquire()
+    task = asyncio.create_task(client._relogin())
+    await asyncio.sleep(0.02)
+    assert not task.done()  # blocked on _lock — proves serialization
+    client._lock.release()
+    await task
+    assert client.connected is True

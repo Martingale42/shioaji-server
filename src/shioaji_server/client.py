@@ -26,6 +26,8 @@ class ShioajiClient:
     session_probe_ttl: float = 5.0
     session_probe_timeout: float = 5.0
     reconnect_max_backoff: float = 60.0
+    resubscribe_max_attempts: int = 5
+    reconnect_warn_after: int = 5
     _session_ok: bool = False
     _session_checked_at: float = -1.0
     _login_kwargs: dict | None = None
@@ -188,18 +190,39 @@ class ShioajiClient:
             if self._reconnecting:
                 return
             self._reconnecting = True
-        self.connected = False
-        self._session_ok = False
+            # Mark the session unusable inside the lock, before any await, so no
+            # request slips through require_connected() onto the dead session.
+            self.connected = False
+            self._session_ok = False
         backoff = 1.0
+        attempts = 0
         try:
             while True:
                 try:
                     await self._relogin()
-                    log.info("[shioaji-server] Session recovered via re-login")
+                    log.info(
+                        "[shioaji-server] Session recovered via re-login "
+                        "(after %d failed attempt(s))",
+                        attempts,
+                    )
                     return
                 except Exception:
+                    attempts += 1
+                    # Don't give up (the cause may be transient — IP whitelist,
+                    # backend maintenance), but escalate to CRITICAL so the
+                    # operator is alerted instead of silently spinning forever.
+                    if attempts == self.reconnect_warn_after:
+                        log.critical(
+                            "[shioaji-server] Re-login still failing after %d "
+                            "attempts — check credentials / IP whitelist / "
+                            "backend status",
+                            attempts,
+                        )
                     log.exception(
-                        "[shioaji-server] Re-login failed; retrying in %.0fs", backoff
+                        "[shioaji-server] Re-login failed (attempt %d); "
+                        "retrying in %.0fs",
+                        attempts,
+                        backoff,
                     )
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, self.reconnect_max_backoff)
@@ -210,34 +233,47 @@ class ShioajiClient:
         """Re-establish the session from stored credentials and restore streams."""
         if self._login_kwargs is None:
             raise RuntimeError("No stored credentials for re-login")
-        loop = asyncio.get_running_loop()
-        # Best-effort release of the dead session to avoid leaking connections
-        # (Shioaji caps at 5 per person); a dead-session logout may error — ignore.
-        try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, self.api.logout), timeout=5.0
-            )
-        except Exception:
-            pass
         kw = self._login_kwargs
-        await loop.run_in_executor(
-            None,
-            self._login_sync,
-            kw["api_key"],
-            kw["secret_key"],
-            kw["ca_path"],
-            kw["ca_passwd"],
-            kw["simulation"],
-        )
-        self.connected = True
-        self._session_ok = True
-        self._session_checked_at = -1.0
+        # Hold _lock for the whole tear-down + rebuild so a concurrent manual
+        # login() (which also holds _lock and rebuilds self.api) cannot run in
+        # parallel — otherwise both create a new sj.Shioaji() and the orphaned
+        # one leaks a Solace connection (Shioaji caps at 5 per person).
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            # Best-effort release of the dead session; a dead-session logout may
+            # error or hang — bound it and ignore failures.
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, self.api.logout), timeout=5.0
+                )
+            except Exception:
+                pass
+            await loop.run_in_executor(
+                None,
+                self._login_sync,
+                kw["api_key"],
+                kw["secret_key"],
+                kw["ca_path"],
+                kw["ca_passwd"],
+                kw["simulation"],
+            )
+            self.connected = True
+            self._session_ok = True
+            self._session_checked_at = -1.0
+        # Re-register + re-subscribe outside _lock (they don't rebuild the SDK).
         if self._manager is not None:
             self.register_callbacks(self._manager)
             await self._resubscribe()
 
     async def _resubscribe(self) -> None:
-        """Re-subscribe all quote streams the WS manager still tracks."""
+        """Re-subscribe all quote streams the WS manager still tracks.
+
+        After a fresh login the SDK contract table may still be loading, so
+        ``resolve_contract`` can transiently fail. Each stream is retried up to
+        ``resubscribe_max_attempts`` times (spaced 1s) to let contracts populate;
+        a stream that still fails is logged at ERROR (not silently dropped) so the
+        lost feed is visible.
+        """
         if self._manager is None:
             return
         keys = list(self._manager.subscriptions.keys())
@@ -245,16 +281,25 @@ class ShioajiClient:
             return
         log.info("[shioaji-server] Re-subscribing %d quote stream(s)", len(keys))
         for code, quote_type in keys:
-            try:
-                contract = self.resolve_contract(code)
-                qt = self.to_quote_type(quote_type)
-                await self.run_sync(
-                    partial(self.api.quote.subscribe, contract, quote_type=qt)
-                )
-            except Exception:
-                log.exception(
-                    "[shioaji-server] Re-subscribe failed for %s/%s", code, quote_type
-                )
+            for attempt in range(1, self.resubscribe_max_attempts + 1):
+                try:
+                    contract = self.resolve_contract(code)
+                    qt = self.to_quote_type(quote_type)
+                    await self.run_sync(
+                        partial(self.api.quote.subscribe, contract, quote_type=qt)
+                    )
+                    break
+                except Exception:
+                    if attempt == self.resubscribe_max_attempts:
+                        log.error(
+                            "[shioaji-server] Re-subscribe FAILED after %d attempts "
+                            "for %s/%s — feed will be missing until next action",
+                            attempt,
+                            code,
+                            quote_type,
+                        )
+                    else:
+                        await asyncio.sleep(1.0)
 
     def register_callbacks(self, manager: ConnectionManager) -> None:
         """Register Shioaji quote + order callbacks that route to WS manager."""
