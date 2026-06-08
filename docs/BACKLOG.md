@@ -32,15 +32,15 @@
 
 ---
 
-## BL-3 ·〔Low〕NT `ParquetDataCatalog.query()` 拋 `MissingMetadata('instrument_id')`
+## BL-3 ·〔Low〕NT `ParquetDataCatalog.query()` 拋 `MissingMetadata('instrument_id')` — ✅ 已修
 
-- [ ] **狀態**：待辦（調查）
-- **Repo / branch**：`nautilus_trader` @ `sinopac-adapter-clean`（fork）
-- **類型**：tech-debt / 資料相容性（早於 2026-06-08 批次）
-- **背景**：NT Rust `ParquetDataCatalog.query()` 對本專案 catalog 拋 `MissingMetadata('instrument_id')`——parquet 檔**從未**帶 `instrument_id` kv metadata（只有 `ARROW:schema`）。**與 Batch 2 時區遷移無關**（遷移只改資料欄位 + 檔名，未動 parquet metadata）。專案自有 reader `scripts/inspect_catalog.py` 讀取正常（729,315 bars，日期完整）。
-- **提案（擇一）**：寫入時補 `instrument_id` parquet kv metadata 使 NT Rust reader 可讀；或文件化「本 catalog 用 `inspect_catalog.py` / polars 讀取」的支援路徑。
-- **驗收**：明確結論——要嘛 NT Rust reader 能讀，要嘛文件標明支援的 reader。
-- **參考**：`docs/sessions/progress.json` `open_followups`；`docs/sessions/2026-06-08-post-report.md` §7.2。
+- [x] **狀態**：已修（`restamp_catalog_metadata.py` 還原 metadata + 欄位型別）
+- **Repo / branch**：`shioaji-server` @ `main`
+- **類型**：**Batch 2 遷移 `7961596` 引入的回歸**（polars round-trip 剝離 NT kv + 降型）
+- **背景**：~~parquet 檔從未帶 `instrument_id` kv metadata~~ **更正**：`catalog.write_data()` 原本 stamp 四鍵 kv（`instrument_id`/`price_precision`/`size_precision`/`bar_type`）+ 正確欄位型別（`fixed_size_binary[16]`、`string`）。Batch 2 遷移 `migrate_ts_to_utc.py` 用 `polars.write_parquet()` 重寫檔案時，polars **剝離全部 NT kv** 並**降型**（`fixed_size_binary[16]→large_binary`、`string→large_string`）→ `ParquetDataCatalog.query()` 拋 `MissingMetadata("instrument_id")`。
+- **修復**：`scripts/restamp_catalog_metadata.py` 讀已損壞的 parquet，`cast()` 回 canonical schema、從完好的 instrument 定義取 kv metadata 重寫、經 `ArrowSerializer.deserialize` 驗證後以 `catalog.write_data()` 重新持久化。**時間值不動**（已真 UTC）。
+- **驗收**：`ParquetDataCatalog('catalog').query(TradeTick)` 與 `.query(Bar)` 均成功；10,609,509 ticks + 729,315 bars；first tick 01:00 UTC（真 UTC）。
+- **參考**：`docs/plans/2026-06-08-bl3-catalog-metadata-restamp.md`；`docs/plans/2026-06-08-backlog-fixes-design.md`。
 
 ---
 

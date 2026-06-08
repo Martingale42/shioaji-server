@@ -1,14 +1,24 @@
 {
   "pipeline": "backlog-BL1-BL4",
-  "current_batch": 1,
+  "current_batch": 2,
   "current_step": "execute",
-  "step_detail": "Ready to begin Batch 1 (Mechanical cleanups BL-2 + BL-4) execution.",
-  "batches_completed": [],
+  "step_detail": "Batch 1 APPROVED WITH NOTES (sibling exclude-newer fixed). Starting Batch 2 (catalog metadata restamp).",
+  "batches_completed": [
+    {
+      "batch": 1,
+      "verdict": "APPROVED WITH NOTES",
+      "commits": {
+        "BL-2": { "repo": "shioaji-server", "branch": "main", "sha": "5ab7c8f" },
+        "BL-4": { "repo": "nautilus_trader", "branch": "sinopac-adapter-clean", "sha": "f0317ffd21" },
+        "BL-4-sibling-fix": { "repo": "nautilus_trader", "branch": "sinopac-adapter-clean", "sha": "2280c79975" }
+      }
+    }
+  ],
   "batches_in_progress": null,
   "qa_status": null,
   "executor_commits": {},
-  "review_verdict": {},
+  "review_verdict": { "batch1": "APPROVED WITH NOTES" },
   "fix_attempts": {},
-  "last_updated": "2026-06-08T00:00:00Z",
-  "notes": "Backlog pipeline initialized from 3 plans: bl2-bl4-cleanups (B1, cross-repo shioaji-server+nautilus_trader), bl3-catalog-metadata-restamp (B2, shioaji-server, Task1 gate, data red line — values already true UTC, repair metadata/schema only), bl1-p3-adopt (B3, cross-repo, real-money, Rust rebuild, Task1 feasibility gate on custom_field round-trip). GATES: B2 T1 (must be already-shifted/uniformly-damaged), B3 T1 (a Shioaji event must carry custom_field)."
+  "last_updated": "2026-06-08T01:30:00Z",
+  "notes": "Batch 1 complete. Reviewer found sibling exclude-newer in python/pyproject.toml — fixed. Moving to Batch 2 (BL-3 catalog metadata restamp, data red line, Task 1 is gate)."
 }

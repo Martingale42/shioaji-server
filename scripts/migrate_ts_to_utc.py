@@ -1,5 +1,19 @@
 """One-time catalog migration: back-correct TW-as-UTC timestamps to true UTC.
 
+.. warning:: **SUPERSEDED — DO NOT RE-RUN.**
+
+   This script uses ``polars.write_parquet()`` which **strips NT key-value
+   metadata** (``instrument_id``, ``price_precision``, ``size_precision``,
+   ``bar_type``) and **downcasts column types** (``fixed_size_binary[16]`` →
+   ``large_binary``, ``string`` → ``large_string``).  The resulting files are
+   unreadable by ``ParquetDataCatalog.query()`` (raises
+   ``MissingMetadata("instrument_id")``).
+
+   The damage was repaired by ``scripts/restamp_catalog_metadata.py`` (BL-3).
+   Any future timestamp or schema migration must go through
+   ``catalog.write_data()`` (NT API) to preserve the metadata, **never** a
+   raw polars round-trip.
+
 Catalog parquet files written before the gateway timezone fix encode
 ``ts_event``/``ts_init`` as Taiwan wall-clock-as-UTC nanosecond epochs — 8h
 ahead of true UTC (see ``docs/AUDIT.md`` §0). This script shifts both columns

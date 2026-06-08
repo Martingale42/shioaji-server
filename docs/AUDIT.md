@@ -67,6 +67,8 @@
 | S4 | 🟡 | quota 耗盡兩處 resume 提示不一致（`day` vs `last_date+1`） | `fetch_single_ticks.py:182,241` | 統一用最後成功日+1 | ⬜ |
 | S5 | ⚪ | `bid_price/ask_price` 靜默丟棄（TradeTick 無此欄位） | `fetch_single_ticks.py:86` | 如需 spread 改存 QuoteTick | ⬜ |
 
+> **⚠️ 更正（2026-06-08，BL-3 調查後）**：`ParquetDataCatalog.query()` 拋 `MissingMetadata('instrument_id')` 原判「PRE-EXISTING（parquet 從未帶 instrument_id kv）」**有誤**。`catalog.write_data()` 原本 stamp 四鍵 kv + 正確欄位型別；是 Batch 2 遷移 `migrate_ts_to_utc.py`（commit `7961596`）的 `polars.write_parquet()` round-trip 剝離了全部 NT kv 並降型。已由 `scripts/restamp_catalog_metadata.py` 修復（BL-3）：cast 回 canonical schema + 重寫 kv，時間值不動。詳見 `docs/BACKLOG.md` BL-3 條目。
+
 ---
 
 ## 4. sinopac adapter（nautilus_trader@sinopac-adapter-clean）

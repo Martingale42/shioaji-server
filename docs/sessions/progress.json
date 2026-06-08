@@ -10,7 +10,8 @@
   "review_verdict": {"batch-1": "APPROVED WITH NOTES (0 Critical/0 Important; 2 Minor both fixed)", "batch-2": "APPROVED WITH NOTES (1 Important dry-run-marker defect — FIXED 950da36; direction/idempotency/WS all verified)", "batch-3": "APPROVED after fix #1 (initial CHANGES REQUESTED C1+I2; C1 key seqno->exchange_seq||ordno, I2 P3 adopt-claim corrected; fix commits 85ee21e2e8, b4ad1c1e17; verify b1986fad1e)"},
   "fix_attempts": {"batch-1": 0, "batch-2": 0, "batch-3": 1},
   "review_verdict_batch3_initial": "CHANGES REQUESTED (C1 Critical P1 wrong field seqno; I2 Important P3 adopt overstated; M3/M4 Minor harmless). Ground-truth verified: Reviewer correct.",
-  "open_followups": ["NT Rust ParquetDataCatalog.query() panics MissingMetadata('instrument_id') on this catalog — PRE-EXISTING (parquet never carried instrument_id kv), flagged by Batch 2 executor; consider separate ticket", "scripts/fetch_single.py has 5 pre-existing ruff errors (dead imports), untouched by Batch 2"],
+  "open_followups": ["scripts/fetch_single.py has 5 pre-existing ruff errors (dead imports), untouched by Batch 2"],
+  "resolved_followups": ["BL-3: NT Rust ParquetDataCatalog.query() MissingMetadata('instrument_id') — originally mislabelled PRE-EXISTING ('parquet never carried instrument_id kv'). CORRECTED: kv metadata WAS present, then STRIPPED by Batch 2 migrate_ts_to_utc.py polars round-trip (commit 7961596). Repaired by restamp_catalog_metadata.py: cast columns back to canonical types + re-attach kv; 10,609,509 ticks + 729,315 bars restored; timestamps unchanged (true UTC)."],
   "last_updated": "2026-06-08T01:05:00Z",
   "notes": "Orchestrator initialized from 3 plans: gateway-resilience (B1), timezone-unification (B2), sinopac-execution (B3, cross-repo nautilus_trader@sinopac-adapter-clean). Env sanity OK: shioaji-server@main clean, nautilus_trader@sinopac-adapter-clean present."
 }
