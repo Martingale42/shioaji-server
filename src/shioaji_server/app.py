@@ -214,6 +214,12 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "error", "detail": f"Unknown action: {action}",
                     }))
 
+            except WebSocketDisconnect:
+                # A disconnect mid-handling (e.g. send_text on a closing socket)
+                # is a normal client exit, not an action failure — re-raise so the
+                # outer handler cleans up instead of logging a spurious warning and
+                # re-sending on a dead socket.
+                raise
             except Exception as exc:  # noqa: BLE001 — keep the connection alive
                 log.warning(
                     "WS %s failed for %s/%s", action, code, quote_type, exc_info=True,
