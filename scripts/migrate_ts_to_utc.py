@@ -127,7 +127,10 @@ def migrate(catalog_path: Path, *, dry_run: bool, force: bool) -> MigrationStats
     Returns:    MigrationStats tallying scanned/shifted/renamed files and rows.
     """
     marker = catalog_path / MARKER_NAME
-    if marker.exists() and not force and not dry_run:
+    if marker.exists() and not force:
+        # Honour the marker in dry-run too: once migrated, a dry-run must report a
+        # no-op (0 files), NOT re-propose a second −8h on already-true-UTC data —
+        # a misleading report could induce a destructive --force double-shift.
         log.warning(
             "Marker %s exists — catalog already migrated. Re-run is a no-op "
             "(pass --force to override).",
