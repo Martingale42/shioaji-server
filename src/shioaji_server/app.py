@@ -151,7 +151,16 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             text = await ws.receive_text()
-            msg = json.loads(text)
+
+            # G6: a single malformed frame must not drop the connection.
+            try:
+                msg = json.loads(text)
+            except json.JSONDecodeError:
+                await ws.send_text(json.dumps({
+                    "type": "error", "detail": "Invalid JSON",
+                }))
+                continue
+
             action = msg.get("action")
             code = msg.get("contract_code")
             quote_type = msg.get("quote_type")
@@ -163,30 +172,61 @@ async def websocket_endpoint(ws: WebSocket):
                 }))
                 continue
 
-            if action == "subscribe":
-                is_new = manager.subscribe(ws, code, quote_type)
-                if is_new:
-                    contract = sj_client.resolve_contract(code)
-                    qt = sj_client.to_quote_type(quote_type)
-                    await sj_client.run_sync(
-                        partial(sj_client.api.quote.subscribe, contract, quote_type=qt),
-                    )
+            # G5: refuse to (un)subscribe when the backend session is down —
+            # otherwise we'd record a WS-side subscription with no live Shioaji
+            # feed behind it, then orphan a Shioaji stream that was never opened.
+            if not sj_client.connected:
                 await ws.send_text(json.dumps({
-                    "type": "subscribed", "code": code, "quote_type": quote_type,
+                    "type": "error", "detail": "gateway not connected",
                 }))
+                continue
 
-            elif action == "unsubscribe":
-                is_empty = manager.unsubscribe(ws, code, quote_type)
-                if is_empty:
-                    contract = sj_client.resolve_contract(code)
-                    qt = sj_client.to_quote_type(quote_type)
-                    await sj_client.run_sync(
-                        partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
-                    )
+            # G5: wrap the per-action body so a resolve_contract / SDK error
+            # (ValueError, AttributeError, etc.) sends an error frame instead of
+            # escaping the loop and killing the connection (leaving a zombie).
+            try:
+                if action == "subscribe":
+                    is_new = manager.subscribe(ws, code, quote_type)
+                    if is_new:
+                        contract = sj_client.resolve_contract(code)
+                        qt = sj_client.to_quote_type(quote_type)
+                        await sj_client.run_sync(
+                            partial(sj_client.api.quote.subscribe, contract, quote_type=qt),
+                        )
+                    await ws.send_text(json.dumps({
+                        "type": "subscribed", "code": code, "quote_type": quote_type,
+                    }))
+
+                elif action == "unsubscribe":
+                    is_empty = manager.unsubscribe(ws, code, quote_type)
+                    if is_empty:
+                        contract = sj_client.resolve_contract(code)
+                        qt = sj_client.to_quote_type(quote_type)
+                        await sj_client.run_sync(
+                            partial(sj_client.api.quote.unsubscribe, contract, quote_type=qt),
+                        )
+                    await ws.send_text(json.dumps({
+                        "type": "unsubscribed", "code": code, "quote_type": quote_type,
+                    }))
+
+                else:
+                    await ws.send_text(json.dumps({
+                        "type": "error", "detail": f"Unknown action: {action}",
+                    }))
+
+            except Exception as exc:  # noqa: BLE001 — keep the connection alive
+                log.warning(
+                    "WS %s failed for %s/%s", action, code, quote_type, exc_info=True,
+                )
                 await ws.send_text(json.dumps({
-                    "type": "unsubscribed", "code": code, "quote_type": quote_type,
+                    "type": "error",
+                    "detail": f"{action} failed for {code}/{quote_type}: {exc}",
                 }))
 
     except WebSocketDisconnect:
+        pass
+    finally:
+        # G5: always release WS-side state + any orphaned Shioaji streams,
+        # whatever broke the loop — no zombie connections, no orphan feeds.
         orphaned = manager.disconnect(ws)
         await _unsubscribe_orphaned(sj_client, orphaned)
