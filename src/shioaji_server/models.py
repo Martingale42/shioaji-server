@@ -54,6 +54,9 @@ class StockContract(BaseModel):
     reference: float = Field(description="Reference price (yesterday's close)")
     update_date: str = Field(description="Contract info update date")
     day_trade: str = Field(description="Day trading eligibility")
+    currency: str = Field(description="Quote currency, e.g. 'TWD'")
+    unit: int = Field(description="Round-lot size (shares per lot, e.g. 1000)")
+    multiplier: int = Field(description="Contract multiplier (0 for stocks)")
 
 
 class FuturesContract(BaseModel):
@@ -70,6 +73,10 @@ class FuturesContract(BaseModel):
     limit_down: float = Field(description="Daily price limit down")
     reference: float = Field(description="Reference price")
     update_date: str = Field(description="Contract info update date")
+    currency: str = Field(description="Quote currency, e.g. 'TWD'")
+    unit: int = Field(description="Lot size (contracts, e.g. 1)")
+    multiplier: int = Field(description="Contract multiplier in TWD per point, e.g. 200 for TXF")
+    underlying_code: str = Field(description="Underlying index/stock code")
 
 
 class OptionsContract(BaseModel):
@@ -82,12 +89,16 @@ class OptionsContract(BaseModel):
     delivery_month: str = Field(description="Delivery month")
     delivery_date: str = Field(description="Delivery (expiry) date")
     strike_price: float = Field(description="Strike price")
-    option_right: str = Field(description="'Call' or 'Put'")
+    option_right: str = Field(description="'C' (Call) or 'P' (Put)")
     underlying_kind: str = Field(description="Underlying type")
     limit_up: float = Field(description="Daily price limit up")
     limit_down: float = Field(description="Daily price limit down")
     reference: float = Field(description="Reference price")
     update_date: str = Field(description="Contract info update date")
+    currency: str = Field(description="Quote currency, e.g. 'TWD'")
+    unit: int = Field(description="Lot size (contracts, e.g. 1)")
+    multiplier: int = Field(description="Contract multiplier in TWD per point, e.g. 50 for TXO")
+    underlying_code: str = Field(description="Underlying index/stock code")
 
 
 # --- Market Data ---
