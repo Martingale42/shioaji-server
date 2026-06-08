@@ -15,32 +15,16 @@ from pathlib import Path
 
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol
-from nautilus_trader.model.objects import Price, Quantity
-from nautilus_trader.model.instruments import Equity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
 from scripts.fetch_historical import (
     BAR_SPEC,
-    TWD,
     VENUE,
     fetch_stock_bars,
     probe_kbar_availability,
 )
-
-
-def make_equity(code: str) -> Equity:
-    instrument_id = InstrumentId(Symbol(code), VENUE)
-    return Equity(
-        instrument_id=instrument_id,
-        raw_symbol=Symbol(code),
-        currency=TWD,
-        price_precision=2,
-        price_increment=Price(0.01, precision=2),
-        lot_size=Quantity(1000, precision=0),
-        ts_event=0,
-        ts_init=0,
-    )
+from scripts.instruments import load_instrument
 
 
 async def main(args: argparse.Namespace) -> None:
@@ -63,8 +47,8 @@ async def main(args: argparse.Namespace) -> None:
             print(f"{code}: no kbar data available")
             return
 
-        equity = make_equity(code)
-        catalog.write_data([equity])
+        instrument = await load_instrument(args.gateway_url, instrument_id)
+        catalog.write_data([instrument])
 
         print(f"Fetching {code} {start}→{end}...")
         n_bars = await fetch_stock_bars(client, code, bar_type, start, end, catalog)

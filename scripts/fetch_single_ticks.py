@@ -25,7 +25,7 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
 from scripts.fetch_historical import VENUE, probe_kbar_availability
-from scripts.fetch_single import make_equity
+from scripts.instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5
 MAX_CONSECUTIVE_EMPTY = 10
@@ -228,8 +228,8 @@ async def main(args: argparse.Namespace) -> None:
             print(f"{code}: no data available")
             return
 
-        equity = make_equity(code)
-        catalog.write_data([equity])
+        instrument = await load_instrument(args.gateway_url, instrument_id)
+        catalog.write_data([instrument])
 
         print(f"Fetching ticks for {code} {start} → {end}...")
         n_ticks, last_date = await fetch_stock_ticks(

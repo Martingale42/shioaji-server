@@ -23,33 +23,15 @@ import polars as pl
 from nautilus_trader.model.data import Bar, BarSpecification, BarType
 from nautilus_trader.model.enums import BarAggregation, PriceType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
-from nautilus_trader.model.instruments import Equity
-from nautilus_trader.model.objects import Currency, Price, Quantity
+from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
 from scripts.filters import compose_filters, exchange_in, five_tier_liquidity
+from scripts.instruments import load_instrument
 
 VENUE = Venue("SINOPAC")
-TWD = Currency.from_str("TWD")
 BAR_SPEC = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)
-
-
-def contract_to_equity(contract: dict) -> Equity:
-    """Convert a gateway stock contract dict to an NT Equity instrument."""
-    code = contract["code"]
-    instrument_id = InstrumentId(Symbol(code), VENUE)
-    now_ns = 0  # static instrument, timestamps don't matter
-    return Equity(
-        instrument_id=instrument_id,
-        raw_symbol=Symbol(code),
-        currency=TWD,
-        price_precision=2,
-        price_increment=Price(0.01, precision=2),
-        lot_size=Quantity(1000, precision=0),
-        ts_event=now_ns,
-        ts_init=now_ns,
-    )
 
 
 def kbars_to_bars(kbar_resp: dict, bar_type: BarType) -> list[Bar]:
@@ -238,9 +220,8 @@ async def main(args: argparse.Namespace) -> None:
             instrument_id = InstrumentId(Symbol(code), VENUE)
             bar_type = BarType(instrument_id, BAR_SPEC)
 
-            contract_row = selected.filter(pl.col("code") == code).to_dicts()[0]
-            equity = contract_to_equity(contract_row)
-            catalog.write_data([equity])
+            instrument = await load_instrument(args.gateway_url, instrument_id)
+            catalog.write_data([instrument])
 
             print(f"[{i}/{len(available)}] {code} ({names[code]}) "
                   f"{start}→{end}...")
