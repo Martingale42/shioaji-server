@@ -196,17 +196,15 @@ def test_legacy_hardcoded_builders_are_gone():
     scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
 
     fetch_single = (scripts_dir / "fetch_single.py").read_text()
-    fetch_historical = (scripts_dir / "fetch_historical.py").read_text()
     fetch_single_ticks = (scripts_dir / "fetch_single_ticks.py").read_text()
 
     assert "def make_equity" not in fetch_single
     assert "make_equity(" not in fetch_single_ticks
-    assert "def contract_to_equity" not in fetch_historical
-    assert "contract_to_equity(" not in fetch_historical
+    assert "def contract_to_equity" not in fetch_single
+    assert "contract_to_equity(" not in fetch_single_ticks
 
-    # All three call sites now route through the shared helper.
+    # Both download scripts route instrument construction through the shared helper.
     assert "from scripts.instruments import load_instrument" in fetch_single
-    assert "from scripts.instruments import load_instrument" in fetch_historical
     assert (
         "from scripts.instruments import load_instrument" in fetch_single_ticks
     )

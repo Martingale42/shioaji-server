@@ -10,12 +10,12 @@ Usage::
     cd shioaji-server
 
     # Full verification (compares against backup):
-    uv run python -m scripts.verify_catalog_restamp \
+    uv run python -m scripts.maintenance.verify_catalog_restamp \
         --catalog-path ./catalog \
         --backup-path ./catalog_pre_restamp_backup
 
     # Without backup (skip diff checks):
-    uv run python -m scripts.verify_catalog_restamp --catalog-path ./catalog
+    uv run python -m scripts.maintenance.verify_catalog_restamp --catalog-path ./catalog
 """
 
 from __future__ import annotations

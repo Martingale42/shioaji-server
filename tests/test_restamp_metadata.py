@@ -25,7 +25,7 @@ from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.serialization.arrow.serializer import ArrowSerializer
 
-from scripts.restamp_catalog_metadata import (
+from scripts.maintenance.restamp_catalog_metadata import (
     BAR_CANON,
     TICK_CANON,
     _repair_table,

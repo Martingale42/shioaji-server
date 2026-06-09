@@ -28,7 +28,7 @@ from nautilus_trader.model.instruments import Equity
 from nautilus_trader.model.objects import Currency, Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from scripts import regen_catalog_instruments as regen
+from scripts.maintenance import regen_catalog_instruments as regen
 
 VENUE = Venue("SINOPAC")
 TWD = Currency.from_str("TWD")

@@ -24,7 +24,7 @@ from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
-from scripts.fetch_historical import VENUE, probe_kbar_availability
+from scripts.bars import VENUE, probe_kbar_availability
 from scripts.instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5

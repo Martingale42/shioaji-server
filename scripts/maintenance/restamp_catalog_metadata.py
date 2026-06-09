@@ -20,8 +20,8 @@ re-persist via ``catalog.write_data()`` into a fresh output catalog.
 
 Usage::
 
-    uv run python -m scripts.restamp_catalog_metadata --catalog-path ./catalog --dry-run
-    uv run python -m scripts.restamp_catalog_metadata --catalog-path ./catalog --out-path ./catalog_restamped
+    uv run python -m scripts.maintenance.restamp_catalog_metadata --catalog-path ./catalog --dry-run
+    uv run python -m scripts.maintenance.restamp_catalog_metadata --catalog-path ./catalog --out-path ./catalog_restamped
 """
 
 from __future__ import annotations

@@ -18,7 +18,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from scripts.client import ShioajiClient
-from scripts.fetch_historical import (
+from scripts.bars import (
     BAR_SPEC,
     VENUE,
     fetch_stock_bars,

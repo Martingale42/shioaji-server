@@ -17,9 +17,9 @@ Safety pattern (mirrors the BL-3 restamp script):
 
 Usage::
 
-    uv run python -m scripts.regen_catalog_instruments \\
+    uv run python -m scripts.maintenance.regen_catalog_instruments \\
         --catalog-path ./catalog --gateway-url http://localhost:8000 --dry-run
-    uv run python -m scripts.regen_catalog_instruments \\
+    uv run python -m scripts.maintenance.regen_catalog_instruments \\
         --catalog-path ./catalog --gateway-url http://localhost:8000
 """
 
