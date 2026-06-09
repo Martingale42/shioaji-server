@@ -29,6 +29,7 @@ dev = [
 
 [project.scripts]
 shioaji-server = "shioaji_server.__main__:main"
+shioaji-data = "shioaji_server.data.cli:main"
 
 [build-system]
 requires = ["hatchling"]

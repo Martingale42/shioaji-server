@@ -3,12 +3,14 @@
 Usage::
 
     cd shioaji-server
-    uv run python -m scripts.inspect_catalog --catalog-path ./catalog
+    uv run shioaji-data inspect [--catalog ./catalog]
+
+The ``shioaji-data`` CLI (``shioaji_server.data.cli``) owns the inspection
+entry point; this module exposes the pure :func:`inspect_catalog` driver.
 """
 
 from __future__ import annotations
 
-import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -170,17 +172,3 @@ def inspect_catalog(catalog_dir: Path) -> None:
 
     inspect_equities(catalog_dir)
     inspect_bars(catalog_dir)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect ParquetDataCatalog contents")
-    parser.add_argument(
-        "--catalog-path", required=True, help="Path to catalog directory"
-    )
-    args = parser.parse_args()
-
-    inspect_catalog(Path(args.catalog_path).resolve())
-
-
-if __name__ == "__main__":
-    main()
