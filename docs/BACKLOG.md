@@ -55,20 +55,20 @@
 
 ---
 
-## BL-5 ·〔Medium〕期貨／選擇權 instrument 的 live 端到端驗證（instrument 定義管線 WS-B 延後項）
+## BL-5 ·〔Medium〕instrument 管線剩餘 live 驗證（期貨/選擇權 + WS-C 等價 + sinopac 整合測試）
 
-- [ ] **狀態**：待辦（blocked，須在 live-integration session 進行）
+- [ ] **狀態**：待辦（blocked，須在 live-integration session 進行）。**BL-6 收口後，本票持有 instrument 管線全部殘留 live 驗證**；股票 `2330` GATE + WS-D 真實 regen 已於 BL-6 完成，剩下都是 live 端到端比對。
 - **Repo / branch**：`shioaji-server` @ `main`（依賴 `nautilus_trader` @ `sinopac-adapter-clean` 的 sinopac wheel 已裝入 shioaji-server venv + gateway 已登入）
 - **類型**：verification / live integration
-- **背景**：2026-06-08 instrument 定義管線（WS-A…D）已修 WS-B 的 Rust parse——期貨／選擇權改用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降為 fallback），並修 `option_right` 對齊 gateway 的 `"C"`/`"P"`（選擇權不再全 `bail!`）。**Rust 單元測試（cargo 85/85）已涵蓋 parse 邏輯**（777/99 非表內值證明走權威路徑、`0` 證明回退、舊拼法 `"Call"` 仍 bail）。但**端到端**（gateway 真實合約 → `SinopacInstrumentProvider` → 建出 instrument）此前因環境缺 sinopac wheel + gateway creds 而延後；GATE probe／首次 live regen 先只驗 `2330`（股票）。
-- **驗收**：gateway 啟動後，經 provider 載入並比對——(1) 一個真實期貨代碼（如 `TXFG6` 之類近月）的 `multiplier` == Shioaji 合約值（非硬編碼 fallback），`lot_size` 來自 `unit`；(2) 一個真實 TXO 選擇權代碼建出 `OptionContract`（不 `bail!`），`option_right`/`strike_price`/`multiplier` 正確。記錄 commit／更新本票。
-- **參考**：`docs/plans/2026-06-08-ws-b-adapter-instrument-parse.md`、`docs/plans/2026-06-08-ws-cd-backtest-and-regen.md`（Task 1 GATE）、`docs/qa/2026-06-08-instruments-full-qa.md`（Deferred 區）、`docs/sessions/instruments/progress.json`。
+- **背景**：2026-06-08 instrument 定義管線（WS-A…D）已修 WS-B 的 Rust parse——期貨／選擇權改用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降為 fallback），並修 `option_right` 對齊 gateway 的 `"C"`/`"P"`（選擇權不再全 `bail!`）。**Rust 單元測試（cargo 91/91，含 ETF 階）已涵蓋 parse 邏輯**。但**真實合約端到端**（gateway → `SinopacInstrumentProvider` → 建出 instrument）的期貨/選擇權、以及 WS-C 等價與 sinopac py 整合測試仍待 live session。
+- **驗收**：gateway 啟動後——(1) 一個真實期貨代碼（如 `TXFG6` 之類近月）的 `multiplier` == Shioaji 合約值（非硬編碼 fallback），`lot_size` 來自 `unit`；(2) 一個真實 TXO 選擇權代碼建出 `OptionContract`（不 `bail!`），`option_right`/`strike_price`/`multiplier` 正確；(3) **WS-C 等價**：同一 `InstrumentId` 經 backtest 腳本（provider）與 live node 載入，id/tick/lot/multiplier 完全一致；(4) **sinopac Python 整合測試** `tests/integration_tests/adapters/sinopac/` 全綠（需 uv 0.11.6，見 [[gotcha-nautilus-uv-version-pin]]）。每項記錄 commit／更新本票。
+- **參考**：`docs/plans/2026-06-08-ws-b-adapter-instrument-parse.md`、`docs/plans/2026-06-08-ws-cd-backtest-and-regen.md`（Task 1 GATE）、`docs/qa/2026-06-08-instruments-full-qa.md`（Deferred 區，3 項 hand-off precondition）、`docs/sessions/instruments/progress.json`。
 
 ---
 
-## BL-6 ·〔Tracking〕Shioaji→NT instrument 定義管線 — 程式碼完成，live-integration 延後
+## BL-6 ·〔Tracking〕Shioaji→NT instrument 定義管線 — ✅ 已完成
 
-- [~] **狀態**：程式碼完成（3 batches 全 APPROVED WITH NOTES + QA PASS WITH ISSUES）；**live-integration 已大致收口**——sinopac wheel 已建並裝入 venv、gateway 已起、2330 GATE probe 過、WS-D 真實 regen 已完成且資料紅線守住；**剩 BL-5（期貨/選擇權）+ sinopac py 整合測試**。live regen 過程中發現並修掉 ETF tick 階 bug（見下）。
+- [x] **狀態**：✅ 已完成。管線核心交付齊全——WS-A…D 程式碼（3 batches APPROVED WITH NOTES + QA PASS WITH ISSUES）、sinopac wheel 建置鏈打通並裝入 venv、`2330` GATE probe 過、**WS-D 真實 catalog regen 完成且資料紅線守住**，並於 live regen 揪出+修掉 ETF tick 階 bug（見下）。**殘留的純 live 端到端驗證（期貨/選擇權、WS-C backtest==live 等價、sinopac py 整合測試）已併入 [[BL-5]] 追蹤。**
 - **Repo / branch**：`shioaji-server` @ `main` + `nautilus_trader` @ `sinopac-adapter-clean`
 - **類型**：feature（instrument 定義對齊 adapter 單一來源）+ deferred live verification
 - **背景**：對齊 sinopac adapter 的 Rust parse 為 live + backtest 的**單一** instrument 定義來源。WS-A gateway 補 `unit`/`multiplier`/`currency`/`underlying_code` + 修 enum `.value` 序列化；WS-B adapter parse 用 Shioaji 權威 `multiplier`/`unit`/`currency`（硬編碼降 fallback）+ 修 `option_right` `"C"`/`"P"`（選擇權不再全 `bail!`）；WS-C 退役 `make_equity` 改用 `SinopacInstrumentProvider`；WS-D 重生既存 catalog instrument 定義。
@@ -81,9 +81,9 @@
   1. ✅ **wheel 建置鏈打通** — fork wheel `v1.226.1-sinopac`（WS-B）→ 發現 ETF bug → `v1.226.2-sinopac`（ETF 修正）已建並 pin 進 shioaji-server venv（`uv.lock` gitignored；pin commit `0926529`→`9f2b77f`）。見 [[nautilus-fork-wheel-release]]。
   2. ✅ **WS-D 真實 catalog regen 完成** — `0050.SINOPAC` tick `0.01→0.05`、`00631L.SINOPAC` 維持 `0.01`；bar/tick 筆數 + first ts_event 前後一致（紅線守住）；備份 `catalog_pre_instrument_regen_backup/`（345M，保留至 signoff）、marker `catalog/.instruments_regenerated` 已寫。
   3. ✅ **2330 GATE probe 過** — provider 建出 `2330.SINOPAC` Equity，tick 5.0 / lot 1000 / TWD。
-  4. ⏳ **剩**：**BL-5**（期貨/選擇權 live 端到端）；**WS-C** backtest==live 同 instrument 等價的正式比對；**sinopac Python 整合測試** `tests/integration_tests/adapters/sinopac/`（uv 版本門檻見 [[gotcha-nautilus-uv-version-pin]]）。
+  4. ➡️ **殘留 live 驗證移交 [[BL-5]]**：期貨/選擇權端到端、WS-C backtest==live 同 instrument 等價、sinopac Python 整合測試 `tests/integration_tests/adapters/sinopac/`（uv 版本門檻見 [[gotcha-nautilus-uv-version-pin]]）。
 - **🐛 live regen 發現並修掉的 bug（ETF tick 階）**：adapter `parse_stock_to_equity` 對所有 equity 套 `twse_stock_tick_size`，但 ETF（TWSE `category "00"`）tick 階不同（`<50→0.01`、`≥50→0.05`）→ 0050 算成 0.50、00631L 算成 0.05 皆錯。修法：新增 `twse_etf_tick_size` + `category=="00"` 分流 + 6 條測試（cargo 91 全綠）。commit `nautilus_trader`@`sinopac-adapter-clean` `b053a6a`，wheel `v1.226.2-sinopac`。**preview-before-mutate 擋下了壞 tick 寫入 production**。
-- **關聯**：**BL-5** 是本管線 WS-B「期貨／選擇權 live 驗證」的細項；下次 live session 收。
+- **關聯**：殘留 live 驗證統一由 **[[BL-5]]** 持有（已擴充涵蓋期貨/選擇權 + WS-C 等價 + sinopac 整合測試）；下次 live session 收。
 - **參考**：`docs/plans/2026-06-08-instrument-definitions-design.md`、三份 `docs/plans/2026-06-08-ws-*.md`、`docs/reviews/2026-06-08-instrument-definition-review.md`、`docs/qa/2026-06-08-instruments-full-qa.md`、`docs/sessions/instruments/`（orchestrator/progress）。
 
 ---
