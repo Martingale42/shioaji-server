@@ -123,6 +123,7 @@ async def regenerate(
     dry_run: bool,
     id_suffix: str | None = None,
     no_backup: bool = False,
+    ids_from_equity_dir: bool = False,
 ) -> RegenStats:
     """Regenerate every catalog instrument definition via the SinoPac provider.
 
@@ -135,11 +136,22 @@ async def regenerate(
     Returns:    ``RegenStats`` with before/after fingerprints + change log.
     """
     catalog = ParquetDataCatalog(str(catalog_path))
-    instruments = {i.id.value: i for i in catalog.instruments()}
-    if id_suffix:
-        instruments = {
-            k: v for k, v in instruments.items() if k.endswith(id_suffix)
-        }
+    if ids_from_equity_dir:
+        # Mixed catalogs (e.g. crypto data with non-NT filenames) can break the
+        # unscoped catalog.instruments() scan. Enumerate equity ids from the
+        # directory and read them SCOPED so no other data type is touched.
+        equity_dir = catalog_path / "data" / "equity"
+        ids = sorted(d.name for d in equity_dir.iterdir() if d.is_dir())
+        if id_suffix:
+            ids = [i for i in ids if i.endswith(id_suffix)]
+        loaded = catalog.instruments(instrument_ids=ids) if ids else []
+        instruments = {i.id.value: i for i in loaded}
+    else:
+        instruments = {i.id.value: i for i in catalog.instruments()}
+        if id_suffix:
+            instruments = {
+                k: v for k, v in instruments.items() if k.endswith(id_suffix)
+            }
     log.info(
         "Found %d instruments: %s", len(instruments), list(instruments.keys())
     )
@@ -296,6 +308,13 @@ def main() -> None:
         help="Skip the internal whole-catalog backup (use when the affected data "
         "is backed up externally; required for large mixed catalogs)",
     )
+    parser.add_argument(
+        "--ids-from-equity-dir",
+        action="store_true",
+        help="Enumerate instrument ids from data/equity/ and read them SCOPED "
+        "(instead of catalog.instruments()) — for mixed catalogs whose other data "
+        "types have non-NT filenames that break the unscoped scan",
+    )
     args = parser.parse_args()
 
     catalog_path = Path(args.catalog_path).resolve()
@@ -313,6 +332,7 @@ def main() -> None:
             dry_run=args.dry_run,
             id_suffix=args.id_suffix,
             no_backup=args.no_backup,
+            ids_from_equity_dir=args.ids_from_equity_dir,
         )
     )
 
