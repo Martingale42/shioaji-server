@@ -15,6 +15,8 @@ batch/quota orchestration (``QuotaGate`` / ``run_batch``) are added by the
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -35,7 +37,6 @@ from .instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5
 MAX_CONSECUTIVE_EMPTY = 10
-USAGE_CHECK_INTERVAL = 20  # check quota every N days
 
 
 @dataclass
@@ -145,6 +146,82 @@ async def check_quota(client: ShioajiClient, min_remaining_mb: float) -> bool:
         return True  # continue on failure — don't block fetch for a monitoring issue
 
 
+class QuotaGate:
+    """Shared, throttled coordinator for the daily ``/api/account/usage`` quota.
+
+    Definition: A batch-level gate that centralizes and throttles quota polling
+        across many concurrent tickers, exposing a single latching ``tripped``
+        flag. Parallel ``fetch_ticks_one`` workers consult one gate instead of
+        each hammering ``/api/account/usage`` and each tracking their own stop
+        condition.
+    Domain:     Single-threaded asyncio only. Coroutines yield only at ``await``
+        points, so the cache/tripped mutations are atomic and need no lock; this
+        class is NOT thread-safe. ``min_remaining_mb`` is the floor in MB below
+        which the gate trips. Throttling uses the **event-loop clock**
+        (``asyncio.get_event_loop().time()``), never wall-clock time, so it is
+        immune to system clock changes and deterministic under a fake loop.
+    Returns:    ``ok()`` returns ``True`` while quota is healthy and ``False``
+        once tripped. The trip is permanent for the gate's lifetime: even if a
+        later poll reports recovered quota, ``ok()`` stays ``False`` (a tripped
+        batch must wind down, not resume mid-flight).
+    """
+
+    def __init__(
+        self,
+        client: ShioajiClient,
+        min_remaining_mb: float,
+        ttl_seconds: float = 10.0,
+    ) -> None:
+        self._client = client
+        self._min = min_remaining_mb
+        self._ttl = ttl_seconds
+        self._tripped = False
+        self._last_check: float | None = None
+        self._cached_remaining: float | None = None
+
+    @property
+    def tripped(self) -> bool:
+        """Whether the gate has latched closed (quota fell below the floor)."""
+        return self._tripped
+
+    async def ok(self) -> bool:
+        """Return whether work may proceed; query usage at most once per TTL.
+
+        Definition: Reports ``True`` while the batch may keep launching work.
+        Formula:    Re-polls ``/api/account/usage`` only when
+                    ``loop.time() - last_check > ttl`` (event-loop clock); trips
+                    permanently when ``remaining_mb < min_remaining_mb``.
+        Domain:     Once ``tripped`` is set it short-circuits to ``False`` and
+                    never re-queries. A failed usage poll is treated as healthy
+                    (do not block a fetch for a monitoring hiccup), matching the
+                    legacy ``check_quota`` fail-open behaviour.
+        Returns:    ``not self._tripped``.
+        """
+        if self._tripped:
+            return False
+
+        loop = asyncio.get_event_loop()
+        now = loop.time()
+        stale = self._last_check is None or (now - self._last_check) > self._ttl
+        if stale:
+            self._last_check = now
+            try:
+                usage = await self._client.get_usage()
+                remaining_mb = usage["remaining_mb"]
+                self._cached_remaining = remaining_mb
+                if remaining_mb < self._min:
+                    print(
+                        f"    QUOTA TRIPPED: remaining {remaining_mb:.1f} MB "
+                        f"< threshold {self._min:.1f} MB — winding down batch"
+                    )
+                    self._tripped = True
+            except Exception as e:
+                # Fail open: a usage-endpoint hiccup must not stall the batch.
+                print(f"    WARNING: quota check failed: {e!r}")
+
+        return not self._tripped
+
+
 async def write_instrument_def_one(
     client_url: str, code: str, catalog: ParquetDataCatalog
 ) -> TickerResult:
@@ -189,19 +266,23 @@ async def fetch_ticks_one(
     start: date,
     end: date,
     catalog: ParquetDataCatalog,
-    min_remaining_mb: float,
+    gate: QuotaGate,
 ) -> TickerResult:
     """Probe, side-write the instrument def, then download trade ticks day-by-day.
 
-    Quota-aware: stops launching new days when remaining quota drops below
-    ``min_remaining_mb``; returns ``partial`` with the last completed date so the
-    caller can resume with ``--start <last_date + 1 day>``.
+    Quota-aware via a **shared** :class:`QuotaGate`: stops launching new days
+    once the gate trips (batch-wide remaining quota below its floor); returns
+    ``partial`` with the last completed date so the caller can resume with
+    ``--start <last_date + 1 day>``. The gate centralizes and throttles the
+    ``/api/account/usage`` poll, so many concurrent tickers share one quota
+    view instead of each calling ``check_quota``.
     """
     instrument_id = InstrumentId(Symbol(code), VENUE)
 
-    # Pre-flight quota check
+    # Pre-flight quota check (shared gate). A pre-flight trip means zero days
+    # were completed, so last_date stays None — the caller resumes from --start.
     print("Checking quota...")
-    if not await check_quota(client, min_remaining_mb):
+    if not await gate.ok():
         return TickerResult(code=code, status="partial")
 
     print(f"Probing {code}...")
@@ -225,12 +306,13 @@ async def fetch_ticks_one(
     stopped_early = False
 
     for i, day in enumerate(days):
-        # Periodic quota check
-        if i > 0 and i % USAGE_CHECK_INTERVAL == 0:
-            if not await check_quota(client, min_remaining_mb):
-                print(f"    Quota exhausted at {day}. Resume with --start {day}")
-                stopped_early = True
-                break
+        # Quota check via the shared gate. The gate self-throttles the actual
+        # /api/account/usage poll (TTL-bounded on the event-loop clock), so this
+        # is cheap to call every day; it returns False once the batch trips.
+        if not await gate.ok():
+            print(f"    Quota exhausted at {day}. Resume with --start {day}")
+            stopped_early = True
+            break
 
         day_str = day.isoformat()
         try:
@@ -289,3 +371,96 @@ async def fetch_ticks_one(
     return TickerResult(
         code=code, status=status, n_written=total_ticks, last_date=last_date
     )
+
+
+async def run_batch(
+    codes: Sequence[str],
+    concurrency: int,
+    per_ticker: Callable[[str], Awaitable[TickerResult]],
+) -> list[TickerResult]:
+    """Run ``per_ticker`` over ``codes`` with bounded concurrency, isolating failures.
+
+    Definition: Bounded-concurrency orchestrator shared by every fetch
+        subcommand. Launches at most ``concurrency`` ticker coroutines at once
+        and gathers their :class:`TickerResult`s; a single ticker may run as the
+        degenerate batch of one.
+    Domain:     Single-threaded asyncio. ``concurrency >= 1``. ``per_ticker`` is
+        a closure binding the gateway/catalog/gate args, taking only the ticker
+        ``code``. A coroutine that *raises* is contained — it does NOT cancel its
+        siblings — and is reported as ``TickerResult(code, status="failed",
+        error=str(e))``; the others still complete.
+    Returns:    One :class:`TickerResult` per input code, in input order.
+    """
+    sem = asyncio.Semaphore(concurrency)
+
+    async def guarded(code: str) -> TickerResult:
+        async with sem:
+            return await per_ticker(code)
+
+    raw = await asyncio.gather(
+        *(guarded(code) for code in codes), return_exceptions=True
+    )
+
+    results: list[TickerResult] = []
+    for code, outcome in zip(codes, raw):
+        if isinstance(outcome, BaseException):
+            results.append(
+                TickerResult(code=code, status="failed", error=str(outcome))
+            )
+        else:
+            results.append(outcome)
+    return results
+
+
+def format_batch_report(results: Sequence[TickerResult]) -> str:
+    """Render a batch summary line plus per-ticker resume hints.
+
+    Definition: One-line status tally over a batch's :class:`TickerResult`s,
+        followed by one resume hint per ``partial``/``failed`` ticker.
+    Domain:     Resume hints are **per-ticker** because each ticker's
+        ``last_date`` differs — a single merged ``--start`` would re-download
+        already-fetched days for tickers that got further, overlapping catalog
+        writes. A ``partial`` ticker that tripped quota pre-flight has
+        ``last_date is None`` (zero days completed); its hint emits a
+        ``--start <original>`` placeholder (the caller re-uses the run's
+        original ``--start``) rather than crashing or emitting ``--start None``.
+    Returns:    A multi-line string: ``"<n> complete, <n> partial, <n> no_data,
+        <n> failed (<total>)"`` then ``"  ⚠ <code> → resume: shioaji-data
+        ... --code <code> [--start <date>]"`` lines for non-clean tickers.
+    """
+    tally: dict[str, int] = {
+        "complete": 0,
+        "partial": 0,
+        "no_data": 0,
+        "failed": 0,
+    }
+    for r in results:
+        tally[r.status] = tally.get(r.status, 0) + 1
+
+    summary = (
+        f"{tally['complete']} complete, {tally['partial']} partial, "
+        f"{tally['no_data']} no_data, {tally['failed']} failed "
+        f"({len(results)})"
+    )
+    lines = [summary]
+
+    for r in results:
+        if r.status not in ("partial", "failed"):
+            continue
+        mark = "⚠" if r.status == "partial" else "✗"
+        hint = f"  {mark} {r.code} ({r.status})"
+        if r.error:
+            hint += f": {r.error}"
+        # last_date present → resume the day after; None (pre-flight quota stop
+        # / no progress) → fall back to the ticker's original --start.
+        if r.last_date is not None:
+            resume_start = r.last_date + timedelta(days=1)
+            hint += (
+                f" → resume: shioaji-data ... --code {r.code} "
+                f"--start {resume_start.isoformat()}"
+            )
+        else:
+            hint += f" → resume: shioaji-data ... --code {r.code} --start <original>"
+        lines.append(hint)
+
+    return "\n".join(lines)
