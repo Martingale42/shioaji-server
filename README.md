@@ -173,6 +173,69 @@ exec_config = ShioajiExecClientConfig()
 
 ---
 
+## 資料下載 — `shioaji-data` CLI
+
+`shioaji-data` 是把歷史資料下載/檢查管線收斂成單一指令的 CLI。它透過上述 gateway
+（需先啟動並登入）抓取資料，寫入 NautilusTrader 的 `ParquetDataCatalog`，並支援
+**一次平行抓一串 ticker**。
+
+### 安裝
+
+CLI 隨套件安裝；editable 安裝即可在任意 cwd 使用：
+
+```bash
+cd shioaji-server
+uv pip install -e .
+uv run shioaji-data --help
+```
+
+### 全域旗標
+
+四個子指令共用：
+
+| 旗標 | 說明 | 預設 |
+|------|------|------|
+| `--catalog` | `ParquetDataCatalog` 目錄路徑 | `./catalog` |
+| `--gateway-url` | gateway base URL | `http://localhost:8000` |
+
+### 子指令
+
+| 指令 | 說明 |
+|------|------|
+| `fetch-bars` | 下載 1 分鐘 K 棒（副產品寫 instrument def） |
+| `fetch-ticks` | 逐日下載成交 tick，配額感知（共享 `QuotaGate`） |
+| `instrument-def` | 只寫 NT instrument 定義 |
+| `inspect` | equity 定義 + bar 體檢（筆數/日期範圍/gap 偵測） |
+
+`fetch-bars` / `fetch-ticks` / `instrument-def` 三者以**互斥必填**的 ticker 選擇器擇一：
+`--code 0050`（單檔）、`--codes 0050,00631L,2330`（逗號分隔）、或
+`--codes-file tickers.txt`（每行一檔，`#` 註解與空行略過）。
+
+### 範例
+
+```bash
+# 單檔 K 棒
+uv run shioaji-data fetch-bars --code 0050 --start 2024-01-01
+
+# 平行批次抓 tick（4 併發，共享每日配額閘門）
+uv run shioaji-data fetch-ticks --codes 0050,00631L --concurrency 4
+
+# 只寫 instrument 定義
+uv run shioaji-data instrument-def --code 2330
+
+# 檢查 catalog
+uv run shioaji-data inspect
+```
+
+部分完成時，CLI 會印出**逐 ticker** 的 resume 提示（各檔 `last_date` 不同，
+合併 `--start` 會重抓）。退出碼：`0` 全部完成、`2` 有 partial/failed、
+`1` gateway 不通。
+
+> **一次性維護鏈不在此 CLI 內**：restamp / regen / verify 等危險的一次性操作維持
+> 獨立入口 `uv run python -m scripts.maintenance.<x>`，刻意不混進日常下載指令。
+
+---
+
 ## 故障排除
 
 ### 啟動時顯示 `Auto-login skipped`
