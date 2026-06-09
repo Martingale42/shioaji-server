@@ -1,35 +1,50 @@
-"""Fetch historical trade tick data for a single stock.
+"""Single-ticker download callables for the same-source Shioaji→NT pipeline.
 
-Usage::
+Consolidates the retired ``fetch_single`` (bars) and ``fetch_single_ticks``
+(trade ticks) scripts into pure, reusable single-ticker drivers:
 
-    cd shioaji-server
-    uv run python -m scripts.fetch_single_ticks --code 2330 --catalog-path ./catalog
+* ``write_instrument_def_one`` — load + write one NT instrument definition.
+* ``fetch_bars_one`` — probe, side-write instrument def, download 1-min bars.
+* ``fetch_ticks_one`` — probe, side-write instrument def, download trade ticks
+  day-by-day with a quota-aware stop and ``--start`` resume support.
 
-Quota-aware: checks ``/api/account/usage`` and stops when remaining bytes
-drop below ``--min-remaining-mb`` (default 50 MB).  Supports ``--start``
-resume so you can pick up where yesterday's run left off.
+Each returns a :class:`TickerResult`. The argparse front-end and the
+batch/quota orchestration (``QuotaGate`` / ``run_batch``) are added by the
+``shioaji-data`` CLI layers; this module owns the per-ticker logic only.
 """
 
 from __future__ import annotations
 
-import argparse
-import asyncio
+from dataclasses import dataclass
 from datetime import date, timedelta
-from pathlib import Path
 
-from nautilus_trader.model.data import TradeTick
+from nautilus_trader.model.data import BarType, TradeTick
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, TradeId
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from shioaji_server.data.client import ShioajiClient
-from shioaji_server.data.bars import VENUE, probe_kbar_availability
-from shioaji_server.data.instruments import load_instrument
+from .bars import (
+    BAR_SPEC,
+    VENUE,
+    fetch_stock_bars,
+    probe_kbar_availability,
+)
+from .client import ShioajiClient
+from .instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5
 MAX_CONSECUTIVE_EMPTY = 10
 USAGE_CHECK_INTERVAL = 20  # check quota every N days
+
+
+@dataclass
+class TickerResult:
+    code: str
+    status: str  # "complete" | "partial" | "no_data" | "failed"
+    n_written: int = 0
+    last_date: date | None = None
+    error: str | None = None
 
 
 def _tick_type_to_aggressor(tick_type: int) -> AggressorSide:
@@ -130,19 +145,75 @@ async def check_quota(client: ShioajiClient, min_remaining_mb: float) -> bool:
         return True  # continue on failure — don't block fetch for a monitoring issue
 
 
-async def fetch_stock_ticks(
+async def write_instrument_def_one(
+    client_url: str, code: str, catalog: ParquetDataCatalog
+) -> TickerResult:
+    """Load and write one NT instrument definition to the catalog."""
+    instrument_id = InstrumentId(Symbol(code), VENUE)
+    instrument = await load_instrument(client_url, instrument_id)
+    catalog.write_data([instrument])
+    return TickerResult(code=code, status="complete", n_written=1)
+
+
+async def fetch_bars_one(
     client: ShioajiClient,
+    gateway_url: str,
     code: str,
-    instrument_id: InstrumentId,
+    start: date,
+    end: date,
+    catalog: ParquetDataCatalog,
+) -> TickerResult:
+    """Probe, side-write the instrument def, then download 1-min bars for one stock."""
+    instrument_id = InstrumentId(Symbol(code), VENUE)
+    bar_type = BarType(instrument_id, BAR_SPEC)
+
+    print(f"Probing {code}...")
+    ok = await probe_kbar_availability(client, code, end)
+    if not ok:
+        print(f"{code}: no kbar data available")
+        return TickerResult(code=code, status="no_data")
+
+    instrument = await load_instrument(gateway_url, instrument_id)
+    catalog.write_data([instrument])
+
+    print(f"Fetching {code} {start}→{end}...")
+    n_bars = await fetch_stock_bars(client, code, bar_type, start, end, catalog)
+    print(f"Done: {n_bars} bars written")
+    return TickerResult(code=code, status="complete", n_written=n_bars, last_date=end)
+
+
+async def fetch_ticks_one(
+    client: ShioajiClient,
+    gateway_url: str,
+    code: str,
     start: date,
     end: date,
     catalog: ParquetDataCatalog,
     min_remaining_mb: float,
-) -> tuple[int, date | None]:
-    """Download ticks for one stock day-by-day and write to catalog.
+) -> TickerResult:
+    """Probe, side-write the instrument def, then download trade ticks day-by-day.
 
-    Returns (total_ticks, last_date_fetched).
+    Quota-aware: stops launching new days when remaining quota drops below
+    ``min_remaining_mb``; returns ``partial`` with the last completed date so the
+    caller can resume with ``--start <last_date + 1 day>``.
     """
+    instrument_id = InstrumentId(Symbol(code), VENUE)
+
+    # Pre-flight quota check
+    print("Checking quota...")
+    if not await check_quota(client, min_remaining_mb):
+        return TickerResult(code=code, status="partial")
+
+    print(f"Probing {code}...")
+    ok = await probe_kbar_availability(client, code, end)
+    if not ok:
+        print(f"{code}: no data available")
+        return TickerResult(code=code, status="no_data")
+
+    instrument = await load_instrument(gateway_url, instrument_id)
+    catalog.write_data([instrument])
+
+    print(f"Fetching ticks for {code} {start} → {end}...")
     total_ticks = 0
     total_skipped = 0
     consecutive_errors = 0
@@ -151,12 +222,14 @@ async def fetch_stock_ticks(
     last_date: date | None = None
     days_with_data = 0
     empty_days = 0
+    stopped_early = False
 
     for i, day in enumerate(days):
         # Periodic quota check
         if i > 0 and i % USAGE_CHECK_INTERVAL == 0:
             if not await check_quota(client, min_remaining_mb):
                 print(f"    Quota exhausted at {day}. Resume with --start {day}")
+                stopped_early = True
                 break
 
         day_str = day.isoformat()
@@ -168,6 +241,7 @@ async def fetch_stock_ticks(
                 print(f"    ERROR {day_str}: {e!r}")
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 print(f"    SKIP: {MAX_CONSECUTIVE_ERRORS} consecutive errors at {day}")
+                stopped_early = True
                 break
             continue
 
@@ -180,6 +254,7 @@ async def fetch_stock_ticks(
                 print(f"    STOP: {MAX_CONSECUTIVE_EMPTY} consecutive empty weekdays "
                       f"({day - timedelta(days=MAX_CONSECUTIVE_EMPTY * 2)} → {day}). "
                       f"Likely quota exhausted. Resume with --start {day}")
+                stopped_early = True
                 break
             continue
 
@@ -201,68 +276,16 @@ async def fetch_stock_ticks(
     if total_skipped:
         print(f"    filtered {total_skipped} invalid tick(s) total "
               f"(volume<=0 or price<=0)")
-    return total_ticks, last_date
 
+    print(f"Done: {total_ticks} ticks written")
+    if last_date and last_date < end:
+        next_start = last_date + timedelta(days=1)
+        print(f"Resume tomorrow with: --start {next_start}")
 
-async def main(args: argparse.Namespace) -> None:
-    catalog_path = Path(args.catalog_path).resolve()
-    catalog_path.mkdir(parents=True, exist_ok=True)
-    catalog = ParquetDataCatalog(str(catalog_path))
+    # Final quota report
+    await check_quota(client, 0)
 
-    start = date.fromisoformat(args.start)
-    end = date.fromisoformat(args.end)
-    code = args.code
-
-    instrument_id = InstrumentId(Symbol(code), VENUE)
-
-    client = ShioajiClient(base_url=args.gateway_url)
-    try:
-        # Pre-flight quota check
-        print("Checking quota...")
-        if not await check_quota(client, args.min_remaining_mb):
-            return
-
-        print(f"Probing {code}...")
-        ok = await probe_kbar_availability(client, code, end)
-        if not ok:
-            print(f"{code}: no data available")
-            return
-
-        instrument = await load_instrument(args.gateway_url, instrument_id)
-        catalog.write_data([instrument])
-
-        print(f"Fetching ticks for {code} {start} → {end}...")
-        n_ticks, last_date = await fetch_stock_ticks(
-            client, code, instrument_id, start, end, catalog, args.min_remaining_mb
-        )
-        print(f"Done: {n_ticks} ticks written")
-        if last_date and last_date < end:
-            next_start = last_date + timedelta(days=1)
-            print(f"Resume tomorrow with: --start {next_start}")
-
-        # Final quota report
-        await check_quota(client, 0)
-    finally:
-        await client.close()
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Fetch historical trade ticks for a single stock"
+    status = "partial" if stopped_early else "complete"
+    return TickerResult(
+        code=code, status=status, n_written=total_ticks, last_date=last_date
     )
-    parser.add_argument("--code", required=True, help="Stock code (e.g. 2330)")
-    parser.add_argument("--catalog-path", required=True, help="Catalog directory")
-    parser.add_argument("--start", default="2020-03-02", help="Start date")
-    parser.add_argument("--end", default=date.today().isoformat(), help="End date")
-    parser.add_argument("--gateway-url", default="http://localhost:8000")
-    parser.add_argument(
-        "--min-remaining-mb",
-        type=float,
-        default=50.0,
-        help="Stop when remaining quota drops below this (MB, default: 50)",
-    )
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    asyncio.run(main(parse_args()))

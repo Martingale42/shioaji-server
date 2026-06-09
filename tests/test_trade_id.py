@@ -8,7 +8,7 @@ distinct nanosecond and aligns with the live HTTP path.
 
 from __future__ import annotations
 
-from scripts.fetch_single_ticks import _ns_to_trade_id
+from shioaji_server.data.fetch import _ns_to_trade_id
 
 
 def test_same_microsecond_different_ns_distinct_ids() -> None:

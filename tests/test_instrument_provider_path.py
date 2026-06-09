@@ -193,23 +193,21 @@ def test_script_path_writes_via_write_data(
 
 
 def test_legacy_hardcoded_builders_are_gone():
-    """Grep-assert the retired builders no longer exist in the scripts."""
-    scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
-
-    fetch_single = (scripts_dir / "fetch_single.py").read_text()
-    fetch_single_ticks = (scripts_dir / "fetch_single_ticks.py").read_text()
-
-    assert "def make_equity" not in fetch_single
-    assert "make_equity(" not in fetch_single_ticks
-    assert "def contract_to_equity" not in fetch_single
-    assert "contract_to_equity(" not in fetch_single_ticks
-
-    # Both download scripts route instrument construction through the shared helper.
-    assert (
-        "from shioaji_server.data.instruments import load_instrument"
-        in fetch_single
+    """Grep-assert the retired builders no longer exist in the fetch module."""
+    fetch_path = (
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "shioaji_server"
+        / "data"
+        / "fetch.py"
     )
-    assert (
-        "from shioaji_server.data.instruments import load_instrument"
-        in fetch_single_ticks
-    )
+    fetch_src = fetch_path.read_text()
+
+    assert "def make_equity" not in fetch_src
+    assert "make_equity(" not in fetch_src
+    assert "def contract_to_equity" not in fetch_src
+    assert "contract_to_equity(" not in fetch_src
+
+    # The consolidated fetch module routes instrument construction through the
+    # shared same-source helper (relative import inside the package).
+    assert "from .instruments import load_instrument" in fetch_src
