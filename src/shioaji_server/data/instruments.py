@@ -12,7 +12,7 @@ authoritative multiplier/currency for futures/options).
 Usage::
 
     from nautilus_trader.model.identifiers import InstrumentId
-    from scripts.instruments import load_instrument
+    from shioaji_server.data.instruments import load_instrument
 
     inst = await load_instrument("http://localhost:8000",
                                  InstrumentId.from_str("2330.SINOPAC"))

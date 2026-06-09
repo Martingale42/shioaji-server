@@ -22,7 +22,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from scripts.client import ShioajiClient
+from .client import ShioajiClient
 
 VENUE = Venue("SINOPAC")
 BAR_SPEC = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)

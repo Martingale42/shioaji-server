@@ -17,14 +17,14 @@ from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from scripts.client import ShioajiClient
-from scripts.bars import (
+from shioaji_server.data.client import ShioajiClient
+from shioaji_server.data.bars import (
     BAR_SPEC,
     VENUE,
     fetch_stock_bars,
     probe_kbar_availability,
 )
-from scripts.instruments import load_instrument
+from shioaji_server.data.instruments import load_instrument
 
 
 async def main(args: argparse.Namespace) -> None:

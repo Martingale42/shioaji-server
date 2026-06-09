@@ -9,7 +9,8 @@ The SinoPac adapter (``nautilus_trader.adapters.sinopac`` + the ``sinopac``
 pyo3 submodule) is only present in a venv built from the rebuilt fork wheel.
 To keep these unit tests runnable without that wheel (and without a live
 gateway), we inject lightweight stand-in modules into ``sys.modules`` *before*
-importing ``scripts.instruments`` and then patch the helper's collaborators.
+importing ``shioaji_server.data.instruments`` and then patch the helper's
+collaborators.
 No live data is fabricated — the provider is fully mocked and only its wiring
 is asserted.
 """
@@ -54,7 +55,7 @@ def _known_equity() -> Equity:
 
 @pytest.fixture
 def instruments_module(monkeypatch: pytest.MonkeyPatch):
-    """Import scripts.instruments with the sinopac adapter modules stubbed.
+    """Import shioaji_server.data.instruments with the sinopac adapter stubbed.
 
     Yields the freshly imported module so each test gets a clean stub graph.
     """
@@ -86,11 +87,11 @@ def instruments_module(monkeypatch: pytest.MonkeyPatch):
         providers_mod,
     )
 
-    # (Re)import scripts.instruments against the stubs.
-    sys.modules.pop("scripts.instruments", None)
-    module = importlib.import_module("scripts.instruments")
+    # (Re)import shioaji_server.data.instruments against the stubs.
+    sys.modules.pop("shioaji_server.data.instruments", None)
+    module = importlib.import_module("shioaji_server.data.instruments")
     yield module
-    sys.modules.pop("scripts.instruments", None)
+    sys.modules.pop("shioaji_server.data.instruments", None)
 
 
 @pytest.mark.asyncio
@@ -204,7 +205,11 @@ def test_legacy_hardcoded_builders_are_gone():
     assert "contract_to_equity(" not in fetch_single_ticks
 
     # Both download scripts route instrument construction through the shared helper.
-    assert "from scripts.instruments import load_instrument" in fetch_single
     assert (
-        "from scripts.instruments import load_instrument" in fetch_single_ticks
+        "from shioaji_server.data.instruments import load_instrument"
+        in fetch_single
+    )
+    assert (
+        "from shioaji_server.data.instruments import load_instrument"
+        in fetch_single_ticks
     )

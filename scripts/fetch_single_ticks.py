@@ -23,9 +23,9 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol, TradeId
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from scripts.client import ShioajiClient
-from scripts.bars import VENUE, probe_kbar_availability
-from scripts.instruments import load_instrument
+from shioaji_server.data.client import ShioajiClient
+from shioaji_server.data.bars import VENUE, probe_kbar_availability
+from shioaji_server.data.instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5
 MAX_CONSECUTIVE_EMPTY = 10

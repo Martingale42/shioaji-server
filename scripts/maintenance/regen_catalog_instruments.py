@@ -4,7 +4,7 @@ The legacy download path wrote ``Equity`` definitions with a hardcoded
 ``0.01`` tick / ``1000`` lot regardless of the contract's reference price tier
 or ``unit``. This one-shot script rebuilds every instrument already in the
 catalog through the **same** SinoPac adapter parse the live node uses
-(``scripts.instruments.load_instrument``) and overwrites ONLY the instrument
+(``shioaji_server.data.instruments.load_instrument``) and overwrites ONLY the instrument
 definition parquet — bar/trade_tick data is never touched.
 
 Safety pattern (mirrors the BL-3 restamp script):
@@ -36,7 +36,7 @@ from pathlib import Path
 from nautilus_trader.model.data import Bar, TradeTick
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from scripts.instruments import load_instrument
+from shioaji_server.data.instruments import load_instrument
 
 log = logging.getLogger("regen_catalog_instruments")
 
