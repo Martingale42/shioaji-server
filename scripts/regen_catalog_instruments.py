@@ -121,6 +121,8 @@ async def regenerate(
     gateway_url: str,
     *,
     dry_run: bool,
+    id_suffix: str | None = None,
+    no_backup: bool = False,
 ) -> RegenStats:
     """Regenerate every catalog instrument definition via the SinoPac provider.
 
@@ -134,6 +136,10 @@ async def regenerate(
     """
     catalog = ParquetDataCatalog(str(catalog_path))
     instruments = {i.id.value: i for i in catalog.instruments()}
+    if id_suffix:
+        instruments = {
+            k: v for k, v in instruments.items() if k.endswith(id_suffix)
+        }
     log.info(
         "Found %d instruments: %s", len(instruments), list(instruments.keys())
     )
@@ -172,17 +178,24 @@ async def regenerate(
         return stats
 
     # Backup the whole catalog BEFORE mutating (data red line).
-    backup_path = catalog_path.parent / BACKUP_DIR_NAME
-    if backup_path.exists():
-        msg = (
-            f"Backup dir {backup_path} already exists — refusing to overwrite "
-            f"a prior backup. Move/remove it first."
+    backup_path: Path | None = None
+    if no_backup:
+        log.warning(
+            "--no-backup: skipping internal whole-catalog backup. Caller MUST "
+            "have externally backed up the affected instrument data."
         )
-        log.error(msg)
-        stats.errors.append(msg)
-        return stats
-    log.info("Backing up %s -> %s", catalog_path, backup_path)
-    shutil.copytree(catalog_path, backup_path)
+    else:
+        backup_path = catalog_path.parent / BACKUP_DIR_NAME
+        if backup_path.exists():
+            msg = (
+                f"Backup dir {backup_path} already exists — refusing to overwrite "
+                f"a prior backup. Move/remove it first."
+            )
+            log.error(msg)
+            stats.errors.append(msg)
+            return stats
+        log.info("Backing up %s -> %s", catalog_path, backup_path)
+        shutil.copytree(catalog_path, backup_path)
 
     # Rebuild + overwrite each instrument definition.
     for iid, old_inst in instruments.items():
@@ -271,6 +284,18 @@ def main() -> None:
         action="store_true",
         help="Report what would change, write nothing",
     )
+    parser.add_argument(
+        "--id-suffix",
+        default=None,
+        help="Only regenerate instruments whose id ends with this suffix "
+        "(e.g. '.SINOPAC') — for shared catalogs holding non-SinoPac instruments",
+    )
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip the internal whole-catalog backup (use when the affected data "
+        "is backed up externally; required for large mixed catalogs)",
+    )
     args = parser.parse_args()
 
     catalog_path = Path(args.catalog_path).resolve()
@@ -282,7 +307,13 @@ def main() -> None:
     log.info("%s catalog=%s gateway=%s", mode, catalog_path, args.gateway_url)
 
     stats = asyncio.run(
-        regenerate(catalog_path, args.gateway_url, dry_run=args.dry_run)
+        regenerate(
+            catalog_path,
+            args.gateway_url,
+            dry_run=args.dry_run,
+            id_suffix=args.id_suffix,
+            no_backup=args.no_backup,
+        )
     )
 
     log.info(

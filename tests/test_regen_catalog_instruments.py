@@ -212,3 +212,32 @@ async def test_aborts_if_backup_dir_already_exists(
     assert stats.regenerated == 0
     assert stats.errors
     assert not (catalog_path / regen.MARKER_NAME).exists()
+
+
+async def test_id_suffix_filters_to_matching_instruments(
+    tmp_path: Path, patched_loader
+):
+    """--id-suffix scopes regen to matching ids (skip non-SinoPac in a shared catalog)."""
+    catalog_path = tmp_path / "catalog"
+    _seed_catalog(catalog_path)  # writes 0050.SINOPAC
+    # A non-SinoPac instrument that the suffix filter must exclude.
+    other = Equity(
+        instrument_id=InstrumentId(Symbol("BTC"), Venue("BYBIT")),
+        raw_symbol=Symbol("BTC"),
+        currency=TWD,
+        price_precision=2,
+        price_increment=Price(0.01, precision=2),
+        lot_size=Quantity(1, precision=0),
+        ts_event=0,
+        ts_init=0,
+    )
+    ParquetDataCatalog(str(catalog_path)).write_data([other])
+
+    stats = await regen.regenerate(
+        catalog_path,
+        "http://localhost:8000",
+        dry_run=True,
+        id_suffix=".SINOPAC",
+    )
+    assert stats.instruments == 1
+    assert set(stats.before) == {"0050.SINOPAC"}
