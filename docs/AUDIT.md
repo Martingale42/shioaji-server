@@ -63,7 +63,7 @@
 |---|------|------|------|----------|------|
 | S1 | 🔴 | ts_event TW-as-UTC 偏 8h（見 §0） | `fetch_single_ticks.py:91,99`、gateway `routes/market_data.py:45` | gateway 統一減 8h（根治） | 🔬 |
 | S2 | 🟠 | 同微秒重複 TradeId（見 §1） | `fetch_single_ticks.py:50` | 改納秒整數對齊 sinopac | ⬜ |
-| S3 | 🟠 | `fix_trade_ids.py` 實跑 TypeError（`existing_data_behavior` 非 pyarrow 參數） | `fix_trade_ids.py:44` | 移除該 kwarg | ⬜ |
+| S3 | 🟠 | `fix_trade_ids.py` 實跑 TypeError（`existing_data_behavior` 非 pyarrow 參數） | ~~`fix_trade_ids.py:44`~~（已刪） | 檔案於 `f21924c` 移除（TradeId 格式被換兩次而失效）→ 問題消失 | ➖ 失效 |
 | S4 | 🟡 | quota 耗盡兩處 resume 提示不一致（`day` vs `last_date+1`） | `fetch_single_ticks.py:182,241` | 統一用最後成功日+1 | ⬜ |
 | S5 | ⚪ | `bid_price/ask_price` 靜默丟棄（TradeTick 無此欄位） | `fetch_single_ticks.py:86` | 如需 spread 改存 QuoteTick | ⬜ |
 
@@ -109,7 +109,7 @@
 - **高/S** Docker HEALTHCHECK 接 `/api/health`：自愈失敗的「假活」容器可被 `docker ps` 看出
 - **高/S** session 事件計數器併入 `/api/health`：自愈黑盒變可觀測
 - **中/S** 錯誤回應結構化（統一 `.error` vs `.detail`）
-- **中/S** `fetch_historical --auto-resume`（讀 catalog 最後日自動續）
+- ~~**中/S** `fetch_historical --auto-resume`（讀 catalog 最後日自動續）~~ — ➖ obsolete：`fetch_historical` 已於 `f21924c` 退役（Paradigm A）；逐檔 fetcher 已具 quota-aware resume（`fetch_single_ticks --start`）
 
 ### sinopac adapter
 - **高/S** 重連後 Python 訂閱集合 ground-truth 重送（防 Rust/Python 訂閱狀態分歧靜默斷流）

@@ -89,4 +89,20 @@
 
 ---
 
-> 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S3–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
+## BL-7 ·〔Low〕`scripts/` cleanup — 退役 Paradigm A bulk 下載路徑 + 維護鏈歸位 — ✅ 已完成
+
+- [x] **狀態**：✅ 已完成（refactor commit `f21924c`）。
+- **Repo / branch**：`shioaji-server` @ `main`
+- **類型**：tech-debt / 清理
+- **背景**：`scripts/` 同時養兩套世界觀——**Paradigm A（全市場 / bulk）**：`fetch_historical`（流動性分層掃描）+ `filters.py` + `load_catalog.py` + `metadata.parquet`；**Paradigm B（指定標的 / curated）**：`fetch_single` + `fetch_single_ticks` + `instruments` + `client` + `inspect_catalog`。catalog（`0050`/`00631L`）100% 由 Paradigm B 逐檔 curate 建成，Paradigm A 從未在此 catalog 跑過——`load_catalog` 實測對現有 catalog 直接死（缺 `metadata.parquet`）。
+- **處置**：
+  - **退役 Paradigm A**：共用 1-min bar 引擎（`VENUE`/`BAR_SPEC`/`kbars_to_bars`/`month_ranges`/`probe_kbar_availability`/`fetch_stock_bars`）抽進 `scripts/bars.py`，`fetch_single`/`fetch_single_ticks` 改 import；刪 `fetch_historical.py`/`filters.py`/`load_catalog.py`。
+  - **刪 superseded 一次性碼**：`migrate_ts_to_utc.py`（剝 NT kv 的回歸根因，標「勿再跑」）、`fix_trade_ids.py`（TradeId 格式被換兩次，且 AUDIT S3 實跑 TypeError）、`resume_00631L_ticks.sh`（00631L tick 已補至 2026-06-05、crontab 自清）。
+  - **維護鏈歸位**：`restamp_catalog_metadata.py`/`regen_catalog_instruments.py`/`verify_catalog_restamp.py` 移入 `scripts/maintenance/`（一次性已執行、markers 在 catalog；保留作複用），同步更新 usage docstring + 2 個測試 import。
+- **驗收**：`scripts/` 15→11 檔（兩層）；`uv run ruff check scripts/ tests/` 全綠；`uv run pytest` 56 passed。
+- **連動 AUDIT**：S3（`fix_trade_ids.py` TypeError）因檔案移除而失效、§5「`fetch_historical --auto-resume`」因腳本退役而 obsolete——均已於 `docs/AUDIT.md` 註記。
+- **未處置（刻意保留）**：`catalog_pre_*_backup/`（558M，regen/restamp 紅線回滾依據）保留至 [[BL-5]] live signoff 後再回收。
+
+---
+
+> 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
