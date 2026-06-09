@@ -162,6 +162,16 @@ def inspect_bars(catalog_dir: Path) -> None:
     print(f"\nTotal bars across all instruments: {total_bars:,}")
 
 
+def inspect_catalog(catalog_dir: Path) -> None:
+    """Run the full catalog inspection: equity definitions + bar data quality."""
+    if not catalog_dir.exists():
+        print(f"Catalog not found: {catalog_dir}")
+        return
+
+    inspect_equities(catalog_dir)
+    inspect_bars(catalog_dir)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect ParquetDataCatalog contents")
     parser.add_argument(
@@ -169,13 +179,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    catalog_dir = Path(args.catalog_path).resolve()
-    if not catalog_dir.exists():
-        print(f"Catalog not found: {catalog_dir}")
-        return
-
-    inspect_equities(catalog_dir)
-    inspect_bars(catalog_dir)
+    inspect_catalog(Path(args.catalog_path).resolve())
 
 
 if __name__ == "__main__":
