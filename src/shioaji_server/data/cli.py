@@ -268,7 +268,13 @@ def main(argv: list[str] | None = None) -> int:
             catalog = ParquetDataCatalog(str(catalog_dir))
             per_ticker = _build_per_ticker(args, client, catalog)
             results = await run_batch(codes, args.concurrency, per_ticker)
-            print(format_batch_report(results))
+            # fetch-bars resumes from the catalog itself, so its partial hints
+            # say "re-run the same command"; ticks keep --start-driven hints.
+            print(
+                format_batch_report(
+                    results, auto_resume=(args.command == "fetch-bars")
+                )
+            )
             all_complete = all(r.status == "complete" for r in results)
             return 0 if all_complete else 2
         finally:

@@ -26,12 +26,18 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
+from shioaji_server.data import fetch as fetch_mod
 from shioaji_server.data.bars import (
     BAR_SPEC,
     VENUE,
     BarsFetchOutcome,
     fetch_stock_bars,
     last_bar_date_in_catalog,
+)
+from shioaji_server.data.fetch import (
+    TickerResult,
+    fetch_bars_one,
+    format_batch_report,
 )
 
 # --------------------------------------------------------------------------- #
@@ -276,3 +282,191 @@ def test_last_bar_date_empty_catalog_is_none(tmp_path):
     catalog = ParquetDataCatalog(str(tmp_path))
 
     assert last_bar_date_in_catalog(catalog, bar_type) is None
+
+
+# --------------------------------------------------------------------------- #
+# fetch_bars_one — catalog-aware auto-resume + honest partial status
+# --------------------------------------------------------------------------- #
+#
+# These exercise the *driver*, so they need the probe + instrument-def + fetch
+# flow faked offline:
+#   * ``fetch.load_instrument`` is monkeypatched to an async no-op returning a
+#     sentinel — no gateway call, no Rust adapter.
+#   * the catalog is a REAL ``ParquetDataCatalog`` (so ``last_bar_date_in_catalog``
+#     genuinely round-trips through ``catalog.path``), but its ``write_data`` is
+#     wrapped to persist only ``Bar`` lists; the sentinel instrument-def write is
+#     swallowed (a sentinel is not a writable NT type). This keeps the resume
+#     read meaningful while the test stays fully offline.
+#   * the client is a recording fake whose ``get_kbars`` is scripted; the up-to-date
+#     case uses a client that RAISES on any call, proving probe + fetch are skipped.
+
+
+class _BarFilteringCatalog(ParquetDataCatalog):
+    """Real catalog that persists only ``Bar`` lists; swallows the instrument sentinel.
+
+    ``fetch_bars_one`` writes a (faked) instrument definition before the bar
+    download. Under test that definition is a sentinel object the real Parquet
+    writer cannot serialize, so this subclass routes only homogeneous ``Bar``
+    lists to the genuine ``write_data`` (keeping ``last_bar_date_in_catalog``
+    honest) and drops anything else.
+    """
+
+    def write_data(self, data, *args, **kwargs):  # type: ignore[override]
+        if data and all(isinstance(d, Bar) for d in data):
+            super().write_data(data, *args, **kwargs)
+        # else: a sentinel instrument-def write — intentionally ignored offline.
+
+
+class _RecordingKbarClient:
+    """``get_kbars`` that records every ``(start, end)`` range and replays a script.
+
+    The script is a list of behaviours consumed in call order. Each behaviour is
+    either a kbars response dict (returned) or a callable ``() -> dict`` (invoked,
+    may raise to simulate a chunk failure). The first recorded call is the probe
+    (``probe_kbar_availability`` issues its own recent-window ``get_kbars``); the
+    rest are the monthly-chunk fetches — so ``self.requested[1:]`` are the fetch
+    ranges a resume test inspects.
+    """
+
+    def __init__(self, behaviors: list) -> None:
+        self._behaviors = list(behaviors)
+        self._i = 0
+        self.requested: list[tuple[str, str]] = []
+
+    async def get_kbars(self, code: str, start: str, end: str) -> dict:
+        self.requested.append((start, end))
+        behavior = self._behaviors[self._i]
+        self._i += 1
+        if callable(behavior):
+            return behavior()
+        return behavior
+
+
+class _ExplodingKbarClient:
+    """``get_kbars`` that fails the test the instant it is called.
+
+    Used by the up-to-date case to prove the resume short-circuit makes ZERO API
+    calls — neither the probe nor the fetch may touch ``get_kbars``.
+    """
+
+    async def get_kbars(self, code: str, start: str, end: str) -> dict:
+        raise AssertionError(
+            f"get_kbars must not be called for an up-to-date ticker "
+            f"(was asked for {start}→{end})"
+        )
+
+
+def _patch_instrument_layer(monkeypatch) -> None:
+    """Make ``fetch.load_instrument`` an offline async no-op returning a sentinel."""
+
+    async def _fake_load_instrument(gateway_url, instrument_id):
+        return object()  # sentinel; swallowed by _BarFilteringCatalog.write_data
+
+    monkeypatch.setattr(fetch_mod, "load_instrument", _fake_load_instrument)
+
+
+async def test_fetch_bars_one_skips_when_up_to_date(tmp_path, monkeypatch):
+    """A catalog already current through ``end`` → complete/0, ZERO get_kbars calls."""
+    bar_type = _bar_type()
+    catalog = _BarFilteringCatalog(str(tmp_path))
+    # Seed a bar AT the end date: resume_start = end + 1 day > end → up to date.
+    catalog.write_data([_bar_at(END, bar_type)])
+
+    _patch_instrument_layer(monkeypatch)
+    client = _ExplodingKbarClient()  # any get_kbars call (probe OR fetch) fails the test
+
+    result = await fetch_bars_one(
+        client, "http://dummy", "2330", START, END, catalog
+    )
+
+    assert result.status == "complete"
+    assert result.n_written == 0
+    assert result.last_date == END
+
+
+async def test_fetch_bars_one_resumes_from_catalog(tmp_path, monkeypatch):
+    """Catalog through mid-range → the first FETCH chunk starts at last+1, not --start."""
+    bar_type = _bar_type()
+    catalog = _BarFilteringCatalog(str(tmp_path))
+    # Seed bars through 2024-02-10 (mid-range). resume_start = 2024-02-11.
+    last_seeded = date(2024, 2, 10)
+    catalog.write_data([_bar_at(date(2024, 1, 20), bar_type), _bar_at(last_seeded, bar_type)])
+
+    _patch_instrument_layer(monkeypatch)
+    # Behaviour order: [0] probe window, [1..] monthly fetch chunks.
+    # After resume, month_ranges(2024-02-11, 2024-03-31) = Feb(11→29), Mar(01→31).
+    client = _RecordingKbarClient(
+        [
+            _kbar_resp([date(2024, 2, 8)]),  # probe: non-empty → availability OK
+            _kbar_resp([date(2024, 2, 15)]),  # fetch chunk Feb (from 11)
+            _kbar_resp([date(2024, 3, 5)]),  # fetch chunk Mar
+        ]
+    )
+
+    result = await fetch_bars_one(
+        client, "http://dummy", "2330", START, END, catalog
+    )
+
+    assert result.status == "complete"
+    # First recorded call is the probe (its window starts 2024-02-01, derived
+    # from end); the FETCH chunks are requested[1:].
+    fetch_ranges = client.requested[1:]
+    assert fetch_ranges, "expected at least one fetch chunk after the probe"
+    first_fetch_start, _ = fetch_ranges[0]
+    # The fetch resumed at last_seeded + 1 day = 2024-02-11, NOT the original
+    # --start (2024-01-15).
+    assert first_fetch_start == "2024-02-11"
+    assert first_fetch_start != START.isoformat()
+    # And no fetch chunk reaches back before the resume point.
+    assert all(start >= "2024-02-11" for start, _ in fetch_ranges)
+
+
+async def test_fetch_bars_one_reports_partial_on_truncation(tmp_path, monkeypatch):
+    """A permanently-failing fetch chunk → status 'partial', last_date == last written bar."""
+    catalog = _BarFilteringCatalog(str(tmp_path))  # empty: no resume, full range fetched
+
+    _patch_instrument_layer(monkeypatch)
+
+    def boom() -> dict:
+        raise RuntimeError("gateway timeout")
+
+    # Behaviour order: [0] probe, [1] chunk1 OK (Jan), [2..4] chunk2 raises on all
+    # 3 attempts → truncation. month_ranges(2024-01-15, 2024-03-31) =
+    # Jan(15→31), Feb(01→29), Mar(01→31).
+    client = _RecordingKbarClient(
+        [
+            _kbar_resp([date(2024, 1, 18)]),  # probe (non-empty)
+            _kbar_resp([date(2024, 1, 22)]),  # chunk 1 (Jan) — written
+            boom,  # chunk 2 attempt 1
+            boom,  # chunk 2 attempt 2
+            boom,  # chunk 2 attempt 3 → truncated
+        ]
+    )
+
+    result = await fetch_bars_one(
+        client, "http://dummy", "2330", START, END, catalog
+    )
+
+    assert result.status == "partial"
+    # last_date is the UTC date of the last bar actually written (chunk 1).
+    assert result.last_date == date(2024, 1, 22)
+    assert result.n_written == 1
+
+
+def test_format_batch_report_auto_resume_hint():
+    """auto_resume=True → bars partial hint says re-run and carries NO --start;
+    auto_resume=False (ticks default) keeps the --start reconstruction."""
+    partial = TickerResult(
+        code="2330", status="partial", n_written=42, last_date=date(2024, 6, 5)
+    )
+
+    # Bars path: auto-resume from catalog — re-run the same command, no --start.
+    bars_report = format_batch_report([partial], auto_resume=True)
+    assert "2330" in bars_report
+    assert "re-run the same command" in bars_report
+    assert "--start" not in bars_report
+
+    # Ticks path (default): the explicit --start <last+1> reconstruction stays.
+    ticks_report = format_batch_report([partial])  # auto_resume defaults to False
+    assert "--start 2024-06-06" in ticks_report  # last_date + 1 day
+    assert "re-run the same command" not in ticks_report

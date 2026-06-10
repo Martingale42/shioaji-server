@@ -30,6 +30,7 @@ from .bars import (
     BAR_SPEC,
     VENUE,
     fetch_stock_bars,
+    last_bar_date_in_catalog,
     probe_kbar_availability,
 )
 from .client import ShioajiClient
@@ -240,9 +241,36 @@ async def fetch_bars_one(
     end: date,
     catalog: ParquetDataCatalog,
 ) -> TickerResult:
-    """Probe, side-write the instrument def, then download 1-min bars for one stock."""
+    """Catalog-aware resume, probe, side-write the instrument def, then download 1-min bars.
+
+    Idempotent auto-resume: the catalog's last persisted bar date is read FIRST,
+    before any API call or instrument-def write. Because ``fetch_stock_bars``
+    guarantees a contiguous error-free prefix ``[start, last_bar_date]``, the day
+    after that last bar is a mathematically safe restart point. Three regimes:
+
+    * already up to date (``last + 1 day > end``) → return ``complete`` with
+      ``n_written == 0`` and ZERO API calls / ZERO duplicate instrument appends;
+    * partially fetched (``last`` inside ``[start, end)``) → advance ``start`` to
+      ``last + 1 day`` so only the missing tail is fetched;
+    * truncated this run (``outcome.truncated``) → report ``partial`` with the
+      last written bar's date, so a plain re-run resumes from there.
+    """
     instrument_id = InstrumentId(Symbol(code), VENUE)
     bar_type = BarType(instrument_id, BAR_SPEC)
+
+    # Resume check FIRST: an up-to-date ticker must cost zero API calls and zero
+    # duplicate instrument-def appends, so this runs before probe + write.
+    last = last_bar_date_in_catalog(catalog, bar_type)
+    if last is not None:
+        resume_start = last + timedelta(days=1)
+        if resume_start > end:
+            print(f"{code}: up to date (last bar {last}) — skipping")
+            return TickerResult(
+                code=code, status="complete", n_written=0, last_date=last
+            )
+        if resume_start > start:
+            print(f"{code}: resuming from {resume_start} (catalog has through {last})")
+            start = resume_start
 
     print(f"Probing {code}...")
     ok = await probe_kbar_availability(client, code, end)
@@ -254,11 +282,15 @@ async def fetch_bars_one(
     catalog.write_data([instrument])
 
     print(f"Fetching {code} {start}→{end}...")
-    # Task 1: fetch_stock_bars now returns a BarsFetchOutcome (not a bare int).
-    # Minimal adaptation to keep this call site working; Task 3 fully rewires
-    # fetch_bars_one to honour outcome.truncated / outcome.last_bar_date for
-    # honest partial status and catalog-aware auto-resume.
     outcome = await fetch_stock_bars(client, code, bar_type, start, end, catalog)
+    if outcome.truncated:
+        print(f"Done: {outcome.n_bars} bars written (TRUNCATED — re-run to resume)")
+        return TickerResult(
+            code=code,
+            status="partial",
+            n_written=outcome.n_bars,
+            last_date=outcome.last_bar_date,
+        )
     print(f"Done: {outcome.n_bars} bars written")
     return TickerResult(
         code=code, status="complete", n_written=outcome.n_bars, last_date=end
@@ -418,7 +450,9 @@ async def run_batch(
     return results
 
 
-def format_batch_report(results: Sequence[TickerResult]) -> str:
+def format_batch_report(
+    results: Sequence[TickerResult], auto_resume: bool = False
+) -> str:
     """Render a batch summary line plus per-ticker resume hints.
 
     Definition: One-line status tally over a batch's :class:`TickerResult`s,
@@ -430,9 +464,23 @@ def format_batch_report(results: Sequence[TickerResult]) -> str:
         ``last_date is None`` (zero days completed); its hint emits a
         ``--start <original>`` placeholder (the caller re-uses the run's
         original ``--start``) rather than crashing or emitting ``--start None``.
+
+        ``auto_resume`` selects the hint flavour for ``partial`` tickers and
+        differs between the two fetch paths because their resume mechanisms
+        differ. ``fetch-bars`` (``auto_resume=True``) reads its restart point
+        from the catalog itself (``last_bar_date_in_catalog``), so re-running the
+        *same* command auto-resumes — its partial hint says exactly that and
+        carries NO ``--start``. ``fetch-ticks`` (``auto_resume=False``, the
+        default) has no catalog-derived resume; the operator must pass
+        ``--start <last_date + 1 day>``, so its partial hint keeps the explicit
+        ``--start`` reconstruction. ``failed`` tickers always keep the
+        ``--start`` reconstruction regardless of the flag (a hard failure is not
+        a clean truncation, so the catalog prefix may not be safe to auto-resume).
     Returns:    A multi-line string: ``"<n> complete, <n> partial, <n> no_data,
-        <n> failed (<total>)"`` then ``"  ⚠ <code> → resume: shioaji-data
-        ... --code <code> [--start <date>]"`` lines for non-clean tickers.
+        <n> failed (<total>)"`` then per-ticker hint lines for non-clean tickers
+        — a "re-run the same command" message for ``auto_resume`` partials, else
+        a ``"  ⚠ <code> → resume: shioaji-data ... --code <code> --start <date>"``
+        reconstruction.
     """
     tally: dict[str, int] = {
         "complete": 0,
@@ -457,9 +505,14 @@ def format_batch_report(results: Sequence[TickerResult]) -> str:
         hint = f"  {mark} {r.code} ({r.status})"
         if r.error:
             hint += f": {r.error}"
+        # fetch-bars partials auto-resume from the catalog: re-running the same
+        # command picks up where it stopped, so no --start is needed (and one
+        # would be wrong — the catalog, not the flag, owns the restart point).
+        if auto_resume and r.status == "partial":
+            hint += " → resume: re-run the same command (auto-resumes from catalog)"
         # last_date present → resume the day after; None (pre-flight quota stop
         # / no progress) → fall back to the ticker's original --start.
-        if r.last_date is not None:
+        elif r.last_date is not None:
             resume_start = r.last_date + timedelta(days=1)
             hint += (
                 f" → resume: shioaji-data ... --code {r.code} "
