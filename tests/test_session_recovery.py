@@ -158,3 +158,42 @@ async def test_relogin_holds_lock_serializing_with_login(monkeypatch):
     client._lock.release()
     await task
     assert client.connected is True
+
+
+async def test_keepalive_tick_triggers_recovery_after_2_consecutive_fails(monkeypatch):
+    client = ShioajiGatewaySession(api=MagicMock())
+    client.connected = True
+    monkeypatch.setattr(client, "check_session", AsyncMock(return_value=False))
+    spy = MagicMock()
+    monkeypatch.setattr(client, "_schedule_recovery", spy)
+    fails = await client._keepalive_tick(0)  # 1st fail
+    assert fails == 1 and spy.call_count == 0
+    fails = await client._keepalive_tick(fails)  # 2nd consecutive fail
+    assert fails == 0 and spy.call_count == 1  # fired, counter reset
+
+
+async def test_keepalive_tick_resets_on_success(monkeypatch):
+    # probe sequence False, True, False → never reaches threshold, never fires
+    client = ShioajiGatewaySession(api=MagicMock())
+    client.connected = True
+    monkeypatch.setattr(
+        client, "check_session", AsyncMock(side_effect=[False, True, False])
+    )
+    spy = MagicMock()
+    monkeypatch.setattr(client, "_schedule_recovery", spy)
+    f = await client._keepalive_tick(0)  # False → 1
+    f = await client._keepalive_tick(f)  # True  → 0
+    f = await client._keepalive_tick(f)  # False → 1
+    assert f == 1 and spy.call_count == 0
+
+
+async def test_keepalive_tick_skips_when_not_connected(monkeypatch):
+    client = ShioajiGatewaySession(api=MagicMock())
+    client.connected = False
+    probe = AsyncMock(return_value=False)
+    monkeypatch.setattr(client, "check_session", probe)
+    spy = MagicMock()
+    monkeypatch.setattr(client, "_schedule_recovery", spy)
+    assert await client._keepalive_tick(1) == 1  # unchanged
+    probe.assert_not_awaited()  # never probed
+    assert spy.call_count == 0

@@ -35,6 +35,10 @@ class ShioajiGatewaySession:
     _reconnecting: bool = False
     _reconnect_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _probe_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    keepalive_interval: float = 5.0
+    keepalive_fail_threshold: int = 2
+    _keepalive_task: asyncio.Task | None = None
+    _recovery_task: asyncio.Task | None = None
 
     def _login_sync(
         self,
@@ -192,6 +196,40 @@ class ShioajiGatewaySession:
             log.error("[shioaji-server] No event loop available to recover session")
             return
         asyncio.run_coroutine_threadsafe(self._handle_session_down(), loop)
+
+    def _schedule_recovery(self) -> None:
+        """Fire the existing recovery from within the event loop.
+
+        Unlike ``_schedule_reconnect`` (the SDK callback, which runs on the SDK's
+        thread and must use run_coroutine_threadsafe), the watchdog runs in the
+        loop, so create_task is correct. Both paths converge on the same
+        ``_handle_session_down``, whose ``_reconnecting`` guard collapses concurrent
+        triggers — so SDK callback + watchdog firing together is safe. The task
+        reference is held so it is not garbage-collected mid-flight.
+        """
+        self._recovery_task = asyncio.create_task(self._handle_session_down())
+
+    async def _keepalive_tick(self, consecutive_fails: int) -> int:
+        """
+        Definition: One liveness check; returns the updated consecutive-failure
+            count and fires recovery when it reaches the threshold.
+        Domain:     Skips entirely (returns the count unchanged) when not
+            connected — covers deliberate logout AND an in-progress recovery
+            (which sets connected=False), so the watchdog never fights either.
+            Uses check_session(force=True) to bypass the probe cache. A silent
+            death is connected=True + probe False.
+        Returns:    0 on a healthy probe or after firing recovery; otherwise the
+            incremented failure count (< threshold).
+        """
+        if not self.connected:
+            return consecutive_fails
+        if await self.check_session(force=True):
+            return 0
+        consecutive_fails += 1
+        if consecutive_fails >= self.keepalive_fail_threshold:
+            self._schedule_recovery()
+            return 0
+        return consecutive_fails
 
     async def _handle_session_down(self) -> None:
         """Recover a dropped Solace session: re-login, re-register, re-subscribe.
