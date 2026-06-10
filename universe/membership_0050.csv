@@ -1,0 +1,106 @@
+# 0050 (FTSE TWSE Taiwan 50 Index) point-in-time membership intervals
+# Window: 2020-03-02 .. today. Index 0050 (元大台灣50) tracks the FTSE TWSE Taiwan 50 Index.
+# Source: zh.wikipedia 臺灣50指數 full change table, cross-checked with FTSE Russell index
+#         notices (2025-06 / 2025-09 / 2026-03 effective dates confirmed) and Taiwan press.
+# Semantics:
+#   - One row per [effective_from, effective_to) membership interval (a code may have several).
+#   - effective_from = 2020-03-02 means "already a member at/before the window start"
+#     (true entry date predates the window and is not reconstructed here).
+#   - effective_to BLANK means "still a member as of today".
+#   - Reviews are effective the Monday after the 3rd Friday of Mar/Jun/Sep/Dec.
+# Confidence: high = corroborated; low = source gap; pending = scheduled but effective_date > today.
+# Flags: F1 = early deletion records missing (esp. 8046 南電); F3 = 2026Q2 pending (eff 2026-06-22,
+#        not yet effective as of today, but kept in download per user); F4 = 2892 source conflict.
+code,name,effective_from,effective_to,confidence,note
+1101,臺泥,2020-03-02,2025-09-22,high,member at window start
+1102,亞泥,2020-03-02,2021-09-20,high,member at window start
+1216,統一,2020-03-02,,high,core
+1301,臺塑,2020-03-02,2026-06-22,high,F3 pending 2026Q2 deletion
+1303,南亞,2020-03-02,,high,core
+1326,臺化,2020-03-02,2025-03-24,high,member at window start
+1402,遠東新,2020-03-02,2021-12-20,high,member at window start
+1402,遠東新,2022-12-19,2023-09-18,high,re-added
+1590,亞德客-KY,2021-03-22,2024-12-23,high,
+1605,華新,2023-03-20,2023-09-18,medium,F1 short tenure
+2002,中鋼,2020-03-02,2026-06-22,high,F3 pending 2026Q2 deletion
+2059,川湖,2025-09-22,,high,
+2105,正新,2020-03-02,2021-06-21,high,member at window start
+2207,和泰車,2020-03-02,2026-06-22,high,F3 pending 2026Q2 deletion
+2301,光寶科,2020-03-02,2020-12-21,high,member at window start
+2301,光寶科,2023-09-18,,high,re-added; current
+2303,聯電,2020-03-02,,high,core
+2308,臺達電,2020-03-02,,high,core
+2317,鴻海,2020-03-02,,high,core
+2327,國巨,2020-03-02,,high,core
+2330,臺積電,2020-03-02,,high,core
+2344,華邦電,2026-03-23,,high,
+2345,智邦,2023-09-18,,high,
+2357,華碩,2020-03-02,,high,core
+2360,致茂,2025-12-22,,high,
+2368,金像電,2026-03-23,,high,
+2379,瑞昱,2020-09-21,2026-03-23,high,
+2382,廣達,2020-03-02,,high,core
+2383,臺光電,2025-06-23,,high,
+2395,研華,2020-03-02,,high,core
+2408,南亞科,2020-03-02,2024-09-23,high,member at window start
+2408,南亞科,2025-12-22,,high,re-added; current
+2409,友達,2021-06-21,2022-12-19,high,
+2412,中華電,2020-03-02,,high,core
+2449,京元電,2026-03-23,,high,
+2454,聯發科,2020-03-02,,high,core
+2474,可成,2020-03-02,2021-06-21,high,member at window start
+2603,長榮,2021-06-21,,high,current
+2609,陽明,2021-06-21,2023-09-18,high,
+2609,陽明,2024-12-23,2025-12-22,high,
+2615,萬海,2021-06-21,2023-09-18,high,
+2615,萬海,2025-03-24,2026-03-23,high,
+2633,臺灣高鐵,2020-03-02,2021-06-21,high,member at window start
+2801,彰銀,2020-03-02,2024-06-24,high,member at window start
+2823,中壽,2020-03-02,2020-09-21,high,member at window start
+2880,華南金,2020-03-02,,high,core
+2881,富邦金,2020-03-02,,high,core
+2882,國泰金,2020-03-02,,high,core
+2883,凱基金,2020-03-02,2021-03-22,high,member at window start (開發金→凱基金 2024 rename)
+2883,凱基金,2022-03-21,,high,re-added; current
+2884,玉山金,2020-03-02,,high,core
+2885,元大金,2020-03-02,,high,core
+2886,兆豐金,2020-03-02,,high,core
+2887,臺新新光金,2020-03-02,,high,core (2887; Taishin-Shinkong merger 2025)
+2888,新光金,2020-03-02,2020-09-21,high,member at window start (later merged into 2887, 2025)
+2890,永豐金,2020-03-02,2021-03-22,high,member at window start
+2890,永豐金,2022-09-19,,high,re-added; current
+2891,中信金,2020-03-02,,high,core
+2892,第一金,2020-03-02,,low,F4 in FTSE 2026-03-31 factsheet but absent from wiki roster
+2912,統一超,2020-03-02,2026-03-23,high,member at window start
+3008,大立光,2020-03-02,,high,core
+3017,奇鋐,2024-06-24,,high,
+3034,聯詠,2020-12-21,2026-03-23,high,
+3037,欣興,2021-12-20,2025-06-23,high,
+3037,欣興,2026-03-23,,high,re-added; current
+3045,臺灣大,2020-03-02,,high,core
+3231,緯創,2023-09-18,,high,
+3443,創意,2026-06-22,,pending,F3 pending 2026Q2 add (kept in download per user)
+3653,健策,2025-12-22,,high,
+3661,世芯-KY,2024-03-18,,high,
+3665,貿聯-KY,2025-12-22,2026-03-23,high,
+3665,貿聯-KY,2026-06-22,,pending,F3 pending 2026Q2 re-add
+3711,日月光,2020-03-02,,high,core
+4904,遠傳,2020-03-02,,high,core
+4938,和碩,2020-03-02,2022-03-21,high,member at window start
+4938,和碩,2023-06-19,2025-12-22,high,re-added then removed
+4958,臻鼎-KY,2026-06-22,,pending,F3 pending 2026Q2 add (kept in download per user)
+5871,中租-KY,2020-03-02,2025-12-22,high,member at window start
+5876,上海商銀,2020-03-02,2025-12-22,high,member at window start
+5880,合庫金,2020-03-02,,high,core
+6415,矽力-KY,2020-09-21,2023-06-19,high,
+6446,藥華藥,2024-09-23,2025-09-22,high,
+6505,臺塑石化,2020-03-02,,high,core
+6669,緯穎,2020-06-22,2021-06-21,high,
+6669,緯穎,2023-09-18,,high,re-added; current
+6770,力積電,2022-06-20,2022-09-19,high,
+6919,康霈,2025-09-22,2026-06-22,high,F3 pending 2026Q2 deletion
+7769,鴻勁,2026-03-23,,high,code confirmed 7769 (not 6661)
+8046,南電,2021-03-22,,low,F1 deletion date(s) unrecorded; re-appears 2023-03-20 & 2026-06-22 — intervals uncertain
+8454,富邦媒,2021-09-20,2022-06-20,high,
+9904,寶成,2020-03-02,2020-06-22,high,member at window start
+9910,豐泰,2020-03-02,2024-03-18,high,member at window start

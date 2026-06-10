@@ -1,0 +1,91 @@
+# 0050 (FTSE TWSE Taiwan 50) point-in-time constituent UNION — download universe
+# Window: 2020-03-02 .. today. 81 distinct codes.
+# = (never-churned core roster) ∪ (every add/del in universe/membership_0050.csv)
+# Source: zh.wikipedia 臺灣50指數 full change table + FTSE Russell notices + cross-checked press.
+# Feed to: uv run shioaji-data fetch-bars --codes-file universe/0050_constituents.txt \
+#            --catalog ./catalog --start 2020-03-02
+# Idempotent: re-running skips up-to-date codes (zero API calls) and resumes the rest.
+# NOTE: 3443, 4958 are 2026Q2-pending (effective 2026-06-22 > today) — kept per user decision.
+# NOTE: 2892 第一金 in FTSE 2026-03-31 factsheet but absent from wiki roster — kept to be safe.
+# Lines are bare codes (the CLI skips only lines starting with '#'; NO inline comments on code lines).
+1101
+1102
+1216
+1301
+1303
+1326
+1402
+1590
+1605
+2002
+2059
+2105
+2207
+2301
+2303
+2308
+2317
+2327
+2330
+2344
+2345
+2357
+2360
+2368
+2379
+2382
+2383
+2395
+2408
+2409
+2412
+2449
+2454
+2474
+2603
+2609
+2615
+2633
+2801
+2823
+2880
+2881
+2882
+2883
+2884
+2885
+2886
+2887
+2888
+2890
+2891
+2892
+2912
+3008
+3017
+3034
+3037
+3045
+3231
+3443
+3653
+3661
+3665
+3711
+4904
+4938
+4958
+5871
+5876
+5880
+6415
+6446
+6505
+6669
+6770
+6919
+7769
+8046
+8454
+9904
+9910
