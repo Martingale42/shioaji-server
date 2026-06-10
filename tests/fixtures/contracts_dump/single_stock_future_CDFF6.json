@@ -1,0 +1,17 @@
+{
+    "code": "CDFF6",
+    "symbol": "CDF202606",
+    "name": "台積電期貨06",
+    "category": "CDF",
+    "delivery_month": "202606",
+    "delivery_date": "2026/06/17",
+    "underlying_kind": "S",
+    "limit_up": 2485.0,
+    "limit_down": 2035.0,
+    "reference": 2260.0,
+    "update_date": "2026/06/10",
+    "currency": "TWD",
+    "unit": 1,
+    "multiplier": 0,
+    "underlying_code": "2330"
+}

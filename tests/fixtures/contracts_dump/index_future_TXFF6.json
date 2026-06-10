@@ -1,0 +1,17 @@
+{
+    "code": "TXFF6",
+    "symbol": "TXF202606",
+    "name": "臺股期貨06",
+    "category": "TXF",
+    "delivery_month": "202606",
+    "delivery_date": "2026/06/17",
+    "underlying_kind": "I",
+    "limit_up": 47703.0,
+    "limit_down": 39031.0,
+    "reference": 43367.0,
+    "update_date": "2026/06/10",
+    "currency": "TWD",
+    "unit": 1,
+    "multiplier": 0,
+    "underlying_code": ""
+}

@@ -1,0 +1,19 @@
+{
+    "code": "TXO20200F6",
+    "symbol": "TXO20260620200C",
+    "name": "臺指選擇權F506月 20200C",
+    "category": "TXO",
+    "delivery_month": "202606",
+    "delivery_date": "2026/06/17",
+    "strike_price": 20200.0,
+    "option_right": "C",
+    "underlying_kind": "I",
+    "limit_up": 28930.0,
+    "limit_down": 19990.0,
+    "reference": 24460.0,
+    "update_date": "2026/06/10",
+    "currency": "TWD",
+    "unit": 1,
+    "multiplier": 0,
+    "underlying_code": ""
+}

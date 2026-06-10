@@ -1,0 +1,15 @@
+{
+    "code": "0050",
+    "symbol": "TSE0050",
+    "name": "\u5143\u5927\u53f0\u706350",
+    "exchange": "TSE",
+    "category": "00",
+    "limit_up": 113.85,
+    "limit_down": 93.15,
+    "reference": 103.5,
+    "update_date": "2026/06/10",
+    "day_trade": "Yes",
+    "currency": "TWD",
+    "unit": 1000,
+    "multiplier": 0
+}

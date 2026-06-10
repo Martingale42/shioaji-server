@@ -1,0 +1,15 @@
+{
+    "code": "2330",
+    "symbol": "TSE2330",
+    "name": "\u53f0\u7a4d\u96fb",
+    "exchange": "TSE",
+    "category": "24",
+    "limit_up": 2535.0,
+    "limit_down": 2075.0,
+    "reference": 2305.0,
+    "update_date": "2026/06/10",
+    "day_trade": "OnlyBuy",
+    "currency": "TWD",
+    "unit": 1000,
+    "multiplier": 0
+}

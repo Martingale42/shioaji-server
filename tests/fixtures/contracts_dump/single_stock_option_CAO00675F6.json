@@ -1,0 +1,19 @@
+{
+    "code": "CAO00675F6",
+    "symbol": "CAO2026066750C",
+    "name": "南亞選擇權06月 67.5C",
+    "category": "CAO",
+    "delivery_month": "202606",
+    "delivery_date": "2026/06/17",
+    "strike_price": 67.5,
+    "option_right": "C",
+    "underlying_kind": "S",
+    "limit_up": 41.5,
+    "limit_down": 21.8,
+    "reference": 31.7,
+    "update_date": "2026/06/10",
+    "currency": "TWD",
+    "unit": 1,
+    "multiplier": 0,
+    "underlying_code": "1303"
+}
