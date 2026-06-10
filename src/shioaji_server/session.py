@@ -15,6 +15,54 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# Event-state strings (str(OrderState.*)) that carry a fill (deal) payload.
+_STOCK_DEAL_STATE = "OrderState.StockDeal"
+
+_SHARES_PER_COMMON_LOT = 1000
+
+
+def _normalize_deal_quantity_to_shares(event_state: str, msg: dict) -> dict:
+    """Rewrite a stock deal event's quantity field to be share-denominated.
+
+    Definition: Convert the ``quantity`` of a common-lot stock deal event from
+        lots to shares so every WS broadcast is share-denominated end-to-end
+        (design D1). Non-deal events and non-common-lot deals pass through
+        unchanged.
+    Formula:    out_quantity = quantity * 1000  if  event_state == StockDeal
+                                                 and order_lot == "Common"
+                              = quantity         otherwise
+    Domain:     ``event_state`` is ``str(OrderState.*)``; only the flat
+        ``StockDealEvent`` payload carries a top-level ``order_lot`` and
+        ``quantity`` (see Shioaji ORDERS reference). Futures/options deals and
+        odd-lot stock deals are already in their natural unit (contracts /
+        shares) and are not scaled. The input dict is not mutated.
+    Returns:    A msg dict whose ``quantity`` is in shares for common-lot stock
+        deals; otherwise the input dict unchanged.
+
+    ASSUMED, pending Task 4.1 live verification. The simulation matching engine
+    does not fill orders out of hours, so no real ``StockDeal`` payload could be
+    captured during Batch 0.1 (see docs/notes/2026-06-11-sinopac-unit-verification.md
+    §1.3). The assumption — common-lot stock deal ``quantity`` is in LOTS (x1000
+    to shares), odd-lot is in SHARES (x1), futures/options are in CONTRACTS (x1),
+    discriminated by the deal payload's ``order_lot`` field — follows the Shioaji
+    convention that deal quantity inherits the order's unit and is consistent with
+    the live-verified order-event units. The intraday acceptance gate (Task 4.1)
+    is the final arbiter: if a real intraday deal reports ``quantity`` already in
+    shares, this scaling must be removed and replaced by a regression test only.
+    """
+    if event_state != _STOCK_DEAL_STATE:
+        return msg
+    if not isinstance(msg, dict):
+        return msg
+    order_lot = msg.get("order_lot")
+    quantity = msg.get("quantity")
+    if order_lot != "Common" or not isinstance(quantity, int):
+        return msg
+    normalized = dict(msg)
+    normalized["quantity"] = quantity * _SHARES_PER_COMMON_LOT
+    return normalized
+
+
 @dataclass
 class ShioajiGatewaySession:
     """Wraps a single Shioaji SDK instance."""
@@ -484,7 +532,12 @@ class ShioajiGatewaySession:
 
         # Order/deal callback
         def on_order(stat, msg):
-            manager.broadcast_order_update(str(stat), msg)
+            event_state = str(stat)
+            # Normalize common-lot stock deal quantity to shares before broadcast
+            # so the WS contract is share-denominated end-to-end (D1). ASSUMED unit,
+            # see _normalize_deal_quantity_to_shares; arbitrated by Task 4.1.
+            msg = _normalize_deal_quantity_to_shares(event_state, msg)
+            manager.broadcast_order_update(event_state, msg)
 
         self.api.quote.set_on_tick_stk_v1_callback(on_tick_stk)
         self.api.quote.set_on_bidask_stk_v1_callback(on_bidask_stk)
