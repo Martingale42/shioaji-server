@@ -50,7 +50,7 @@ class _FakeWebSocket:
 
 
 def _sj_client(connected: bool = True) -> MagicMock:
-    """A mocked ShioajiClient: awaitable run_sync, no real SDK."""
+    """A mocked ShioajiGatewaySession: awaitable run_sync, no real SDK."""
     client = MagicMock()
     client.connected = connected
     client.run_sync = AsyncMock()

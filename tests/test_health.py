@@ -1,4 +1,4 @@
-"""Unit tests for the live backend session probe (ShioajiClient.check_session).
+"""Unit tests for the live backend session probe (ShioajiGatewaySession.check_session).
 
 Guards the false-positive bug where /api/health reported connected:true while
 the Shioaji backend Solace session had silently dropped (ShioajiConnectionError
@@ -12,12 +12,12 @@ import asyncio
 import time
 from unittest.mock import MagicMock
 
-from shioaji_server.client import ShioajiClient
+from shioaji_server.session import ShioajiGatewaySession
 
 
-def _client(connected: bool = True) -> ShioajiClient:
-    """A ShioajiClient with a mocked SDK (no real Shioaji instance/login)."""
-    client = ShioajiClient(api=MagicMock())
+def _client(connected: bool = True) -> ShioajiGatewaySession:
+    """A ShioajiGatewaySession with a mocked SDK (no real Shioaji instance/login)."""
+    client = ShioajiGatewaySession(api=MagicMock())
     client.connected = connected
     return client
 

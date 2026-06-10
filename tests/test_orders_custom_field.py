@@ -69,7 +69,7 @@ def test_trade_info_custom_field_defaults_empty():
 
 @pytest.fixture
 def app():
-    """Get the FastAPI app with a mocked ShioajiClient injected."""
+    """Get the FastAPI app with a mocked ShioajiGatewaySession injected."""
     from shioaji_server.app import app as _app
 
     sj_mock = MagicMock()

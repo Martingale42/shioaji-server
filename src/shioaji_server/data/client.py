@@ -5,7 +5,7 @@ import asyncio
 import httpx
 
 
-class ShioajiClient:
+class ShioajiGatewayClient:
     """Thin async client for the Shioaji gateway server.
 
     Rate-limits quote queries to ~10 concurrent requests with a small delay

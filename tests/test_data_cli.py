@@ -4,7 +4,7 @@ Covers the parser shape (four subcommands, the ``--code`` XOR ``--codes`` /
 ``--codes-file`` required group), code resolution from a file, the dispatch
 wiring (``run_batch`` is invoked with the parsed codes + concurrency), and the
 gateway-down exit path (exit 1). Every test is fully offline: the health probe,
-``ShioajiClient``, ``ParquetDataCatalog``, and ``run_batch`` are monkeypatched,
+``ShioajiGatewayClient``, ``ParquetDataCatalog``, and ``run_batch`` are monkeypatched,
 so no gateway or network is touched.
 """
 
@@ -105,7 +105,7 @@ def test_dispatch_routes_fetch_ticks(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "_check_gateway", fake_check_gateway)
     monkeypatch.setattr(cli, "run_batch", fake_run_batch)
-    monkeypatch.setattr(cli, "ShioajiClient", FakeClient)
+    monkeypatch.setattr(cli, "ShioajiGatewayClient", FakeClient)
     monkeypatch.setattr(cli, "ParquetDataCatalog", FakeCatalog)
 
     rc = cli.main(
@@ -142,7 +142,7 @@ def test_dispatch_partial_returns_exit_2(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "_check_gateway", fake_check_gateway)
     monkeypatch.setattr(cli, "run_batch", fake_run_batch)
-    monkeypatch.setattr(cli, "ShioajiClient", FakeClient)
+    monkeypatch.setattr(cli, "ShioajiGatewayClient", FakeClient)
     monkeypatch.setattr(cli, "ParquetDataCatalog", FakeCatalog)
 
     rc = cli.main(["fetch-bars", "--codes", "0050,2330"])

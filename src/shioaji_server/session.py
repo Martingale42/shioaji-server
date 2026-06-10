@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
-class ShioajiClient:
+class ShioajiGatewaySession:
     """Wraps a single Shioaji SDK instance."""
 
     api: sj.Shioaji = field(default_factory=sj.Shioaji)

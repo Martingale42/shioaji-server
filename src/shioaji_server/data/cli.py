@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from .client import ShioajiClient
+from .client import ShioajiGatewayClient
 from .fetch import (
     QuotaGate,
     TickerResult,
@@ -262,7 +262,7 @@ async def _check_gateway(
 
 def _build_per_ticker(
     args: argparse.Namespace,
-    client: ShioajiClient,
+    client: ShioajiGatewayClient,
     catalog: ParquetDataCatalog,
 ):
     """Build the bound ``per_ticker`` closure for the active fetch subcommand.
@@ -336,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     codes = resolve_codes(args)
 
     async def _run() -> int:
-        client = ShioajiClient(base_url=args.gateway_url)
+        client = ShioajiGatewayClient(base_url=args.gateway_url)
         try:
             catalog = ParquetDataCatalog(str(catalog_dir))
             per_ticker = _build_per_ticker(args, client, catalog)

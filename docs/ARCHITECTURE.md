@@ -46,13 +46,13 @@ Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
 
 ### `app.py` — FastAPI 應用
 
-- 定義 `lifespan`：啟動時建立 `ShioajiClient` → 自動登入 → 註冊 WS callbacks，關閉時 logout
+- 定義 `lifespan`：啟動時建立 `ShioajiGatewaySession` → 自動登入 → 註冊 WS callbacks，關閉時 logout
 - `_auto_login`：讀取環境變數嘗試登入，缺少時印出設定提示但不 crash
 - 掛載所有 route routers + RuntimeError handler
 - `/ws` WebSocket 端點：處理行情訂閱/取消訂閱
 - `/api/health` 健康檢查
 
-### `client.py` — ShioajiClient
+### `session.py` — ShioajiGatewaySession
 
 SDK 的核心封裝層，解決兩個問題：
 
@@ -61,7 +61,7 @@ SDK 的核心封裝層，解決兩個問題：
 
 ```python
 @dataclass
-class ShioajiClient:
+class ShioajiGatewaySession:
     api: sj.Shioaji           # SDK 實例
     connected: bool            # 連線狀態
     simulation: bool           # 模擬/正式
@@ -226,7 +226,7 @@ Gateway 模式將 SDK 隔離在獨立 process，透過 HTTP/WS 提供語言無�
 
 ### 單一 SDK 實例
 
-整個 server 共用一個 `ShioajiClient` 實例（存在 `app.state.sj`）。Shioaji SDK 本身不支援多實例（受限於連線數和 callback 註冊），單一實例也符合一個 server 對應一個交易帳戶的設計。
+整個 server 共用一個 `ShioajiGatewaySession` 實例（存在 `app.state.sj`）。Shioaji SDK 本身不支援多實例（受限於連線數和 callback 註冊），單一實例也符合一個 server 對應一個交易帳戶的設計。
 
 ### Docker 中的 CA_PATH 處理
 
@@ -256,7 +256,7 @@ shioaji-server/
         ├── __init__.py
         ├── __main__.py     # 入口：載入 .env、CLI 參數、啟動 uvicorn
         ├── app.py          # FastAPI app、lifespan、auto-login、WS 端點
-        ├── client.py       # ShioajiClient：SDK 封裝、async bridge
+        ├── session.py      # ShioajiGatewaySession：SDK 封裝、async bridge
         ├── errors.py       # RuntimeError → HTTP status 映射
         ├── models.py       # Pydantic request/response models
         ├── routes/

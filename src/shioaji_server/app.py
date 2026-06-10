@@ -7,7 +7,7 @@ from functools import partial
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
-from shioaji_server.client import ShioajiClient
+from shioaji_server.session import ShioajiGatewaySession
 from shioaji_server.errors import runtime_error_handler
 from shioaji_server.models import HealthResponse
 from shioaji_server.routes.account import router as account_router
@@ -39,7 +39,7 @@ You can also login manually via POST /api/auth/login after the server starts.
 """.strip()
 
 
-async def _auto_login(sj_client: ShioajiClient) -> None:
+async def _auto_login(sj_client: ShioajiGatewaySession) -> None:
     """Attempt auto-login from environment variables."""
     api_key = os.environ.get("SHIOAJI_API_KEY")
     secret_key = os.environ.get("SHIOAJI_SECRET_KEY")
@@ -72,7 +72,7 @@ async def _auto_login(sj_client: ShioajiClient) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.sj = ShioajiClient()
+    app.state.sj = ShioajiGatewaySession()
     app.state.ws_manager = manager
     manager.set_loop(asyncio.get_running_loop())
     await _auto_login(app.state.sj)
@@ -130,7 +130,7 @@ async def health(request: Request) -> dict:
 
 
 async def _unsubscribe_orphaned(
-    sj_client: ShioajiClient, orphaned: list[tuple[str, str]],
+    sj_client: ShioajiGatewaySession, orphaned: list[tuple[str, str]],
 ) -> None:
     """Unsubscribe Shioaji quotes for keys with no remaining WS clients."""
     for code, quote_type in orphaned:

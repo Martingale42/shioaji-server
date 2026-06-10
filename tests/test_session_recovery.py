@@ -1,4 +1,4 @@
-"""Regression tests for Solace session self-healing (ShioajiClient).
+"""Regression tests for Solace session self-healing (ShioajiGatewaySession).
 
 Root cause being guarded: the gateway never registered
 ``set_session_down_callback``, so a dropped backend session never recovered —
@@ -12,12 +12,12 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from shioaji_server.client import ShioajiClient
+from shioaji_server.session import ShioajiGatewaySession
 
 
-def _down_client() -> ShioajiClient:
+def _down_client() -> ShioajiGatewaySession:
     """A client with stored credentials, simulating a dropped session."""
-    client = ShioajiClient(api=MagicMock())
+    client = ShioajiGatewaySession(api=MagicMock())
     client.connected = False
     client._login_kwargs = {
         "api_key": "k",
@@ -31,7 +31,7 @@ def _down_client() -> ShioajiClient:
 
 async def test_register_callbacks_wires_session_down():
     """The actual root-cause fix: session_down + event callbacks get registered."""
-    client = ShioajiClient(api=MagicMock())
+    client = ShioajiGatewaySession(api=MagicMock())
     manager = MagicMock()
     client.register_callbacks(manager)
     client.api.set_session_down_callback.assert_called_once()

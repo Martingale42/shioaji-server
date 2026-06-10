@@ -33,7 +33,7 @@ from .bars import (
     last_bar_date_in_catalog,
     probe_kbar_availability,
 )
-from .client import ShioajiClient
+from .client import ShioajiGatewayClient
 from .instruments import load_instrument
 
 MAX_CONSECUTIVE_ERRORS = 5
@@ -129,7 +129,7 @@ def trading_days(start: date, end: date) -> list[date]:
     return days
 
 
-async def check_quota(client: ShioajiClient, min_remaining_mb: float) -> bool:
+async def check_quota(client: ShioajiGatewayClient, min_remaining_mb: float) -> bool:
     """Return True if enough quota remains, False to stop."""
     try:
         usage = await client.get_usage()
@@ -169,7 +169,7 @@ class QuotaGate:
 
     def __init__(
         self,
-        client: ShioajiClient,
+        client: ShioajiGatewayClient,
         min_remaining_mb: float,
         ttl_seconds: float = 10.0,
     ) -> None:
@@ -234,7 +234,7 @@ async def write_instrument_def_one(
 
 
 async def fetch_bars_one(
-    client: ShioajiClient,
+    client: ShioajiGatewayClient,
     gateway_url: str,
     code: str,
     start: date,
@@ -298,7 +298,7 @@ async def fetch_bars_one(
 
 
 async def fetch_ticks_one(
-    client: ShioajiClient,
+    client: ShioajiGatewayClient,
     gateway_url: str,
     code: str,
     start: date,

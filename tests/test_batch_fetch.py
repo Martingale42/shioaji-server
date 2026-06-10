@@ -26,7 +26,7 @@ from shioaji_server.data.fetch import (
 
 
 class FakeUsageClient:
-    """A stand-in :class:`ShioajiClient` that scripts ``get_usage`` responses.
+    """A stand-in :class:`ShioajiGatewayClient` that scripts ``get_usage`` responses.
 
     ``remaining_sequence`` supplies one ``remaining_mb`` per call; once exhausted
     the last value repeats. Every call is counted in ``calls`` so tests can

@@ -39,7 +39,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.objects import Price, Quantity
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
-from .client import ShioajiClient
+from .client import ShioajiGatewayClient
 
 VENUE = Venue("SINOPAC")
 BAR_SPEC = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)
@@ -108,7 +108,7 @@ def month_ranges(start: date, end: date) -> list[tuple[date, date]]:
 
 
 async def probe_kbar_availability(
-    client: ShioajiClient, code: str, end: date
+    client: ShioajiGatewayClient, code: str, end: date
 ) -> bool:
     """Try fetching a recent month to check if kbar data exists for this stock."""
     probe_start = (end.replace(day=1) - timedelta(days=1)).replace(day=1)
@@ -120,7 +120,7 @@ async def probe_kbar_availability(
 
 
 async def fetch_stock_bars(
-    client: ShioajiClient,
+    client: ShioajiGatewayClient,
     code: str,
     bar_type: BarType,
     start: date,

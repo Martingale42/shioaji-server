@@ -106,7 +106,7 @@ def test_gateway_unreachable_returns_1(monkeypatch, capsys) -> None:
 
 
 class FakeTicksClient:
-    """Fake ShioajiClient for fetch_ticks_one: scripts usage + per-day ticks.
+    """Fake ShioajiGatewayClient for fetch_ticks_one: scripts usage + per-day ticks.
 
     ``remaining_sequence`` drives ``get_usage`` (one value per call, last
     repeats). ``get_ticks`` returns one synthetic executed trade per requested
