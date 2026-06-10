@@ -27,7 +27,7 @@ QA 後發現兩顆設計雷,外加代碼盤點時挖出第三顆:
 |------|------|
 | 續傳策略 | 自動續傳:retry-then-break + catalog-aware resume + partial 回報 |
 | 盤中截尾 | `_effective_end`:台北 15:00 前一律 cap 到昨日,顯式 `--end` 也 cap |
-| 探活 | 固定 2330 kbar 探針(近 7 日),僅 fetch 子命令,失敗 exit 1 |
+| 探活 | 固定 2330 kbar 探針(近 14 日),僅 fetch 子命令,失敗 exit 1 |
 
 ## 設計
 
@@ -82,7 +82,7 @@ ticks 也吃同一個 cap——`fetch_ticks_one` 是同樣的日粒度 resume
 `_check_gateway` 升級為兩段:
 
 1. `GET /api/health` + `raise_for_status()`(補上 HTTP 層驗證)
-2. `GET /api/market/kbars?code=2330&start=今-7日&end=今日` → `ts` 非空才放行
+2. `GET /api/market/kbars?code=2330&start=今-14日&end=今日` → `ts` 非空才放行
    (台積電必有資料,假陰性趨近零;成本僅數 KB 配額)
 
 新增 `GatewayStaleError`,`main` 分流兩種 exit 1 訊息:「不可達(connect)」

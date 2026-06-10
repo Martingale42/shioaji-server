@@ -227,9 +227,34 @@ uv run shioaji-data instrument-def --code 2330
 uv run shioaji-data inspect
 ```
 
-部分完成時，CLI 會印出**逐 ticker** 的 resume 提示（各檔 `last_date` 不同，
-合併 `--start` 會重抓）。退出碼：`0` 全部完成、`2` 有 partial/failed、
-`1` gateway 不通。
+### 續傳與盤中保護
+
+**fetch-bars 自動續傳（冪等）**：bars 的續傳點直接讀自 catalog 最後一根 bar 的隔日，
+不需要手動算 `--start`、也不需要刪 bar 目錄。
+
+- 重跑同一條 `fetch-bars` 指令即從 catalog 續抓；已完成的檔印 `up to date — skipping`
+  秒過、**零 API 呼叫**。
+- 中途因連續錯誤截斷時回報 `partial`；**直接重跑同一條指令**即從截斷點續傳。
+
+`fetch-ticks` 不同：ticks 仍是 `--start`-driven 的續傳——部分完成時 CLI 印出**逐 ticker**
+的 resume 提示（各檔 `last_date` 不同，合併 `--start` 會重抓已抓過的日子），重跑需帶
+`--start <last_date + 1 天>`。
+
+**盤中截尾防護**：台北時間 15:00 前，`--end`（含顯式指定）會被自動 cap 到昨日，並印一行
+`note: capping --end …`。盤中當日 bars/ticks 不完整，若寫進 catalog 會讓日粒度續傳永久
+跳過當天剩餘時段，且 `inspect` 的日級 gap 偵測看不到。15:00 = 收盤（13:30）＋ 證交所
+資料定稿緩衝。
+
+**啟動探活**：每個 fetch 子指令啟動會做兩段 pre-flight——`/api/health` ＋ 一筆真實 `2330`
+kbar 探針（近 14 日）。只有真的拿得到行情才放行，因為 `/api/health` 只反映登入旗標，
+後端 Solace session 靜默失效時仍回報健康。兩種 `exit 1` 的差異：
+
+- **gateway not reachable**：container 沒起來或未登入（確認 container 已啟動且已登入）。
+- **session stale or unhealthy**：health OK 但 2330 探針無資料（需重新登入 gateway）。
+
+`inspect` 離線、不探活。
+
+退出碼：`0` 全部完成、`2` 有 partial/failed、`1` gateway 不通或 session 假活。
 
 > **一次性維護鏈不在此 CLI 內**：restamp / regen / verify 等危險的一次性操作維持
 > 獨立入口 `uv run python -m scripts.maintenance.<x>`，刻意不混進日常下載指令。
