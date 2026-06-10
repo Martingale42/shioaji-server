@@ -231,6 +231,42 @@ class ShioajiGatewaySession:
             return 0
         return consecutive_fails
 
+    async def _keepalive_loop(self) -> None:
+        """Probe every keepalive_interval; never dies on a stray exception.
+
+        check_session already swallows probe errors into False (counted toward the
+        threshold), so a failure is a normal False, not an exception. The try/except
+        is defense-in-depth: a watchdog that crashes silently is worse than none.
+        Only CancelledError exits the loop (clean shutdown).
+        """
+        fails = 0
+        while True:
+            try:
+                await asyncio.sleep(self.keepalive_interval)
+                fails = await self._keepalive_tick(fails)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("[shioaji-server] keepalive tick error; continuing")
+
+    def start_keepalive(self) -> None:
+        """Start the watchdog if not already running (idempotent)."""
+        if self._keepalive_task is not None and not self._keepalive_task.done():
+            return
+        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+    async def stop_keepalive(self) -> None:
+        """Cancel and await the watchdog; safe to call when not running."""
+        task = self._keepalive_task
+        self._keepalive_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     async def _handle_session_down(self) -> None:
         """Recover a dropped Solace session: re-login, re-register, re-subscribe.
 

@@ -197,3 +197,60 @@ async def test_keepalive_tick_skips_when_not_connected(monkeypatch):
     assert await client._keepalive_tick(1) == 1  # unchanged
     probe.assert_not_awaited()  # never probed
     assert spy.call_count == 0
+
+
+async def test_start_keepalive_idempotent():
+    client = ShioajiGatewaySession(api=MagicMock())
+    client.start_keepalive()
+    t1 = client._keepalive_task
+    client.start_keepalive()
+    assert client._keepalive_task is t1  # no second task
+    await client.stop_keepalive()
+
+
+async def test_stop_keepalive_cancels():
+    client = ShioajiGatewaySession(api=MagicMock())
+    client.start_keepalive()
+    t = client._keepalive_task
+    await client.stop_keepalive()
+    assert t.cancelled() or t.done()
+    assert client._keepalive_task is None
+
+
+async def test_keepalive_loop_survives_tick_exception(monkeypatch):
+    """A raised tick is logged and the loop keeps running (doesn't die).
+
+    The loop's ``await asyncio.sleep(interval)`` is patched to a real zero-delay
+    yield so the loop spins fast without real waits but still hands control back
+    to the event loop each iteration (a pure no-op AsyncMock would let the
+    ``while True`` monopolize the single-threaded loop and never terminate). The
+    tick stops the loop itself once it has survived the exception, so the test is
+    deterministic and cannot hang.
+    """
+    client = ShioajiGatewaySession(api=MagicMock())
+    real_sleep = asyncio.sleep
+
+    async def fast_sleep(_delay):
+        await real_sleep(0)  # yield to the loop, but without the real interval
+
+    monkeypatch.setattr(asyncio, "sleep", fast_sleep)
+    calls = {"n": 0}
+    done = asyncio.Event()
+
+    async def boom_then_ok(_fails):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("transient")  # 1st tick blows up
+        if calls["n"] >= 2:
+            done.set()  # proved survival; let the test stop the loop
+        return 0
+
+    monkeypatch.setattr(client, "_keepalive_tick", boom_then_ok)
+    task = asyncio.create_task(client._keepalive_loop())
+    await asyncio.wait_for(done.wait(), timeout=1.0)  # bounded; no hang
+    assert calls["n"] >= 2  # survived the exception, kept going
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
