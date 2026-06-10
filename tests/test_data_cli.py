@@ -68,6 +68,18 @@ def test_resolve_codes_from_codes_flag() -> None:
     assert cli.resolve_codes(args) == ["0050", "2330", "00631L"]
 
 
+def test_resolve_codes_dedupes_preserving_order() -> None:
+    """Repeated codes collapse to first occurrence (order preserved).
+
+    A duplicate would launch two concurrent fetch_bars_one workers against the
+    same bar/<code>/ dir; the second write_data collides on the catalog's
+    disjoint-interval check → a spurious failed + exit 2. Dedupe at the source.
+    """
+    parser = cli.build_parser()
+    args = parser.parse_args(["fetch-bars", "--codes", "2330,0050,2330,0050,2330"])
+    assert cli.resolve_codes(args) == ["2330", "0050"]
+
+
 def test_dispatch_routes_fetch_ticks(monkeypatch) -> None:
     """fetch-ticks dispatch calls run_batch with the parsed codes + concurrency."""
     captured: dict[str, object] = {}

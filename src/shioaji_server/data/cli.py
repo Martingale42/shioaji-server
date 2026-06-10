@@ -196,6 +196,13 @@ def resolve_codes(args: argparse.Namespace) -> list[str]:
     ``--code`` → ``[code]``; ``--codes`` → comma-split (blanks dropped);
     ``--codes-file`` → :func:`_read_codes_file`. argparse guarantees exactly
     one of the three is set on a fetch subcommand.
+
+    Duplicates are removed (first occurrence kept, input order preserved):
+    a repeated code would launch two concurrent workers against the SAME
+    ``bar/<code>/`` directory, and the second ``catalog.write_data`` would
+    collide on the ParquetDataCatalog disjoint-interval check (overlapping
+    ts ranges) → a spurious ``failed`` + exit 2. ``fetch-bars`` auto-resume
+    makes that collision deterministic, so dedupe at the source.
     """
     code = getattr(args, "code", None)
     codes = getattr(args, "codes", None)
@@ -204,10 +211,12 @@ def resolve_codes(args: argparse.Namespace) -> list[str]:
     if code:
         return [code]
     if codes:
-        return [c.strip() for c in codes.split(",") if c.strip()]
-    if codes_file:
-        return _read_codes_file(codes_file)
-    return []
+        raw = [c.strip() for c in codes.split(",") if c.strip()]
+    elif codes_file:
+        raw = _read_codes_file(codes_file)
+    else:
+        return []
+    return list(dict.fromkeys(raw))
 
 
 def _parse_date(value: str) -> date:
