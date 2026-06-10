@@ -254,9 +254,15 @@ async def fetch_bars_one(
     catalog.write_data([instrument])
 
     print(f"Fetching {code} {start}→{end}...")
-    n_bars = await fetch_stock_bars(client, code, bar_type, start, end, catalog)
-    print(f"Done: {n_bars} bars written")
-    return TickerResult(code=code, status="complete", n_written=n_bars, last_date=end)
+    # Task 1: fetch_stock_bars now returns a BarsFetchOutcome (not a bare int).
+    # Minimal adaptation to keep this call site working; Task 3 fully rewires
+    # fetch_bars_one to honour outcome.truncated / outcome.last_bar_date for
+    # honest partial status and catalog-aware auto-resume.
+    outcome = await fetch_stock_bars(client, code, bar_type, start, end, catalog)
+    print(f"Done: {outcome.n_bars} bars written")
+    return TickerResult(
+        code=code, status="complete", n_written=outcome.n_bars, last_date=end
+    )
 
 
 async def fetch_ticks_one(

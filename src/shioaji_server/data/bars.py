@@ -10,11 +10,26 @@ bar pipeline, the latter for the shared ``VENUE`` and ``probe_kbar_availability`
 The liquidity-tier universe selection (``build_metadata`` + ``scripts.filters``)
 and its ``metadata.parquet`` were dropped: the catalog is built by curating
 specific instrument ids, not by scanning the whole market.
+
+**Contiguous-prefix invariant (load-bearing contract).** ``fetch_stock_bars``
+downloads the requested range in calendar-month chunks *in order* and NEVER
+skips forward past a chunk it could not fetch. A chunk is retried in place up to
+``MAX_CHUNK_ATTEMPTS`` times; if all attempts fail the loop stops immediately
+and reports ``truncated=True``. The consequence — and the whole point — is that
+whatever bars land in the catalog always form a gap-free prefix
+``[start, last_bar_date]`` with no error holes in the middle. (An empty month,
+e.g. pre-listing or a trading halt, is genuine data, not an error, so the prefix
+stays contiguous across it.) Downstream resume logic relies on this: "last bar
+date in the catalog + 1 day" is a mathematically safe restart point only because
+this invariant holds. The retired bulk downloader's cross-chunk
+``MAX_CONSECUTIVE_ERRORS`` counter violated it — after 1–2 transient errors it
+``continue``d to the next month, silently leaving month-sized holes.
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 
 from nautilus_trader.model.data import Bar, BarSpecification, BarType
 from nautilus_trader.model.enums import BarAggregation, PriceType
@@ -27,7 +42,25 @@ from .client import ShioajiClient
 VENUE = Venue("SINOPAC")
 BAR_SPEC = BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST)
 
-MAX_CONSECUTIVE_ERRORS = 3
+MAX_CHUNK_ATTEMPTS = 3
+
+
+@dataclass
+class BarsFetchOutcome:
+    """Outcome of one fetch_stock_bars run.
+
+    Definition: Truth-carrying result of the monthly-chunk download loop.
+    Domain:     ``truncated=True`` means the loop stopped at a chunk that
+                failed MAX_CHUNK_ATTEMPTS times; everything BEFORE that chunk
+                was fetched (or genuinely empty) — the catalog prefix is
+                contiguous. ``last_bar_date`` is the UTC date of the last bar
+                actually written (None if nothing was written).
+    Returns:    n_bars written this run, last_bar_date, truncated flag.
+    """
+
+    n_bars: int
+    last_bar_date: date | None
+    truncated: bool
 
 
 def kbars_to_bars(kbar_resp: dict, bar_type: BarType) -> list[Bar]:
@@ -91,32 +124,55 @@ async def fetch_stock_bars(
     start: date,
     end: date,
     catalog: ParquetDataCatalog,
-) -> int:
-    """Download kbars for one stock in monthly chunks and write to catalog."""
-    total_bars = 0
-    consecutive_errors = 0
-    chunks = month_ranges(start, end)
+) -> BarsFetchOutcome:
+    """Download kbars for one stock in monthly chunks, preserving a contiguous prefix.
 
-    for chunk_start, chunk_end in chunks:
+    Definition: Fetch ``[start, end]`` in calendar-month chunks (in order) and
+                write each month's bars to ``catalog``, stopping at the first
+                chunk that cannot be fetched.
+    Domain:     Each chunk is retried in place up to ``MAX_CHUNK_ATTEMPTS`` times;
+                the loop NEVER skips forward past a failed chunk (no ``continue``
+                to the next month on error). An empty month (pre-listing / halt)
+                is genuine data, not an error, so the loop keeps going. This
+                guarantees the contiguous-prefix invariant documented in the
+                module docstring. TWSE session is 01:00–05:30 UTC, so the UTC
+                date of a bar equals its Taiwan trading date.
+    Returns:    A :class:`BarsFetchOutcome` — bars written this run, the UTC date
+                of the last bar written (None if none), and ``truncated`` (True
+                when a chunk exhausted its attempts and the loop stopped early).
+    """
+    total_bars = 0
+    last_bar_date: date | None = None
+
+    for chunk_start, chunk_end in month_ranges(start, end):
         start_str = chunk_start.isoformat()
         end_str = chunk_end.isoformat()
 
-        try:
-            kbar_resp = await client.get_kbars(code, start_str, end_str)
-        except Exception as e:
-            consecutive_errors += 1
-            if consecutive_errors <= 2:
-                print(f"    ERROR {start_str}→{end_str}: {e!r}")
-            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                print(f"    SKIP: {MAX_CONSECUTIVE_ERRORS} consecutive errors")
+        kbar_resp = None
+        for attempt in range(1, MAX_CHUNK_ATTEMPTS + 1):
+            try:
+                kbar_resp = await client.get_kbars(code, start_str, end_str)
                 break
-            continue
+            except Exception as e:
+                print(
+                    f"    ERROR {start_str}→{end_str} "
+                    f"(attempt {attempt}/{MAX_CHUNK_ATTEMPTS}): {e!r}"
+                )
 
-        consecutive_errors = 0
+        if kbar_resp is None:
+            print(
+                f"    TRUNCATED at {start_str}: {MAX_CHUNK_ATTEMPTS} attempts "
+                f"failed — stopping so the catalog prefix stays contiguous"
+            )
+            return BarsFetchOutcome(total_bars, last_bar_date, truncated=True)
+
         bars = kbars_to_bars(kbar_resp, bar_type)
-        if bars:
+        if bars:  # empty month (pre-listing/halt) is NOT an error
             bars.sort(key=lambda b: b.ts_init)
             catalog.write_data(bars)
             total_bars += len(bars)
+            last_bar_date = datetime.fromtimestamp(
+                bars[-1].ts_init / 1e9, tz=timezone.utc
+            ).date()
 
-    return total_bars
+    return BarsFetchOutcome(total_bars, last_bar_date, truncated=False)
