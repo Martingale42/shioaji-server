@@ -165,3 +165,139 @@ def test_accepted_status_is_200(app, client):
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "OrderStatus.PendingSubmit"
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3: list_trades reports shares and deal-aggregated filled_qty
+# ---------------------------------------------------------------------------
+
+def _make_deal(price: float, quantity: int):
+    deal = MagicMock(spec=["price", "quantity"])
+    deal.price = price
+    deal.quantity = quantity
+    return deal
+
+
+def _make_trade(*, order_lot: str, order_qty: int, deals: list, deal_quantity: int = 0):
+    trade = MagicMock()
+    trade.status.id = "trade-rep"
+    trade.contract.code = "2330"
+    trade.order.action = "Buy"
+    trade.order.price = 580.0
+    trade.order.quantity = order_qty
+    trade.order.order_lot = order_lot
+    trade.order.order_type = "ROD"
+    trade.order.price_type = "LMT"
+    trade.order.custom_field = "tok"
+    trade.status.status = "Filled"
+    trade.status.deals = deals
+    trade.status.deal_quantity = deal_quantity
+    return trade
+
+
+def _wire_list_trades(app, trades: list):
+    sj = app.state.sj
+    api = sj.api
+    api.stock_account = MagicMock()
+    api.futopt_account = None
+    api.update_status = MagicMock()
+    api.list_trades = MagicMock(return_value=trades)
+
+    async def fake_run_sync(fn, *args):
+        return fn(*args)
+
+    sj.run_sync = fake_run_sync
+
+
+def test_list_trades_common_lot_reports_shares_and_fills(app, client):
+    """Common-lot trade reports quantity and filled_qty in shares plus VWAP."""
+    trade = _make_trade(
+        order_lot="Common",
+        order_qty=2,
+        deals=[_make_deal(580.0, 1)],
+    )
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["quantity"] == 2000
+    assert row["filled_qty"] == 1000
+    assert row["avg_fill_price"] == 580.0
+
+
+def test_list_trades_common_lot_vwap_across_deals(app, client):
+    """Multiple common-lot deals produce a volume-weighted average price."""
+    trade = _make_trade(
+        order_lot="Common",
+        order_qty=3,
+        deals=[_make_deal(580.0, 1), _make_deal(600.0, 2)],
+    )
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    row = resp.json()[0]
+    assert row["quantity"] == 3000
+    assert row["filled_qty"] == 3000
+    # (580*1 + 600*2) / 3 = 593.333...
+    assert row["avg_fill_price"] == pytest.approx((580.0 + 1200.0) / 3)
+
+
+def test_list_trades_odd_lot_factor_one(app, client):
+    """Odd-lot trade keeps share-denominated quantities (factor 1)."""
+    trade = _make_trade(
+        order_lot="IntradayOdd",
+        order_qty=100,
+        deals=[_make_deal(580.0, 37)],
+    )
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    row = resp.json()[0]
+    assert row["quantity"] == 100
+    assert row["filled_qty"] == 37
+
+
+def test_list_trades_futures_factor_one(app, client):
+    """Futures trade (no order_lot attr) reports contracts unchanged."""
+    trade = MagicMock()
+    trade.status.id = "trade-fut"
+    trade.contract.code = "TXFR1"
+    trade.order = MagicMock(spec=["action", "price", "quantity", "order_type", "price_type"])
+    trade.order.action = "Buy"
+    trade.order.price = 20000.0
+    trade.order.quantity = 2
+    trade.order.order_type = "ROD"
+    trade.order.price_type = "LMT"
+    trade.status.status = "Filled"
+    trade.status.deals = [_make_deal(20000.0, 2)]
+    trade.status.deal_quantity = 0
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    row = resp.json()[0]
+    assert row["quantity"] == 2
+    assert row["filled_qty"] == 2
+    assert row["custom_field"] == ""
+
+
+def test_list_trades_no_deals_filled_qty_zero(app, client):
+    """A trade with no deals reports filled_qty 0 and avg_fill_price 0.0."""
+    trade = _make_trade(order_lot="Common", order_qty=1, deals=[])
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    row = resp.json()[0]
+    assert row["quantity"] == 1000
+    assert row["filled_qty"] == 0
+    assert row["avg_fill_price"] == 0.0
+
+
+def test_list_trades_falls_back_to_deal_quantity(app, client):
+    """When deals are absent, the SDK deal_quantity summary is used (in shares)."""
+    trade = _make_trade(order_lot="Common", order_qty=2, deals=[], deal_quantity=1)
+    _wire_list_trades(app, [trade])
+
+    resp = client.get("/api/orders/trades")
+    row = resp.json()[0]
+    assert row["filled_qty"] == 1000  # 1 lot summary * 1000 share factor

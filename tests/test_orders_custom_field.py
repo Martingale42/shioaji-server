@@ -114,7 +114,7 @@ def test_place_order_stock_passes_custom_field(app, client):
             "code": "2330",
             "action": "Buy",
             "price": 580.0,
-            "quantity": 1,
+            "quantity": 1000,  # 1 common lot in shares (wire unit is shares, D1)
             "custom_field": "ab12cd",
         },
     )
@@ -153,7 +153,7 @@ def test_place_order_truncates_custom_field_to_6(app, client):
             "code": "2330",
             "action": "Buy",
             "price": 580.0,
-            "quantity": 1,
+            "quantity": 1000,  # 1 common lot in shares (wire unit is shares, D1)
             "custom_field": "toolongtoken",
         },
     )

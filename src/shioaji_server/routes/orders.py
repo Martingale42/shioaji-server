@@ -13,6 +13,22 @@ from shioaji_server.models import (
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
+def _share_factor(trade) -> int:
+    """Return the multiplier converting this trade's SDK quantity unit to shares.
+
+    Definition: Common-lot stock orders are lot-denominated in Shioaji
+        (1 lot = 1000 shares); odd-lot stock and all futures/options
+        quantities are already in their natural unit.
+    Formula:    factor = 1000 if (stock and order_lot == Common) else 1
+    Domain:     ``trade.order.order_lot`` exists only for stock orders;
+        futures/options orders lack the attribute -> factor 1.
+    Returns:    1000 or 1 (dimensionless multiplier).
+    """
+    order_lot = getattr(trade.order, "order_lot", None)
+    is_common = getattr(order_lot, "value", str(order_lot)) == "Common"
+    return 1000 if is_common else 1
+
+
 def _resolve_contract(api, code: str, market: str):
     if market == "stock":
         return api.Contracts.Stocks[code]
@@ -169,17 +185,33 @@ async def list_trades(request: Request) -> list[dict]:
     api = sj_client.api
 
     trades = await sj_client.run_sync(_list_trades_sync, api)
-    return [
-        {
-            "trade_id": str(t.status.id),
-            "code": t.contract.code,
-            "action": str(t.order.action),
-            "price": float(t.order.price),
-            "quantity": int(t.order.quantity),
-            "status": str(t.status.status),
-            "order_type": str(t.order.order_type),
-            "price_type": str(t.order.price_type),
-            "custom_field": getattr(t.order, "custom_field", ""),
-        }
-        for t in trades
-    ]
+    result = []
+    for t in trades:
+        factor = _share_factor(t)
+        # Aggregate fills from individual deals when available; fall back to the
+        # SDK's deal_quantity summary. Both are in the SDK's native unit, so
+        # apply the share factor once to the aggregate.
+        deals = getattr(t.status, "deals", None) or []
+        deal_qty = sum(int(d.quantity) for d in deals)
+        filled_qty = (deal_qty or int(getattr(t.status, "deal_quantity", 0))) * factor
+        avg_fill_price = (
+            sum(float(d.price) * int(d.quantity) for d in deals) / deal_qty
+            if deal_qty
+            else 0.0
+        )
+        result.append(
+            {
+                "trade_id": str(t.status.id),
+                "code": t.contract.code,
+                "action": str(t.order.action),
+                "price": float(t.order.price),
+                "quantity": int(t.order.quantity) * factor,
+                "status": str(t.status.status),
+                "order_type": str(t.order.order_type),
+                "price_type": str(t.order.price_type),
+                "custom_field": getattr(t.order, "custom_field", ""),
+                "filled_qty": filled_qty,
+                "avg_fill_price": avg_fill_price,
+            }
+        )
+    return result
