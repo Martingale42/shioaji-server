@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
@@ -45,6 +46,32 @@ DEFAULT_CONCURRENCY = 4
 DEFAULT_MIN_REMAINING_MB = 50.0
 
 FETCH_COMMANDS = ("fetch-bars", "fetch-ticks", "instrument-def")
+
+TAIPEI = ZoneInfo("Asia/Taipei")
+MARKET_DATA_FINAL_HOUR = 15  # 13:30 close + TWSE data-finalization buffer
+
+
+def _effective_end(end: date, now_tw: datetime | None = None) -> date:
+    """
+    Definition: Clamp the fetch end date so an intraday-incomplete trading day
+        can never be persisted.
+    Formula:    end' = min(end, today_tw - 1d)  if now_tw.hour < 15 and
+                end >= today_tw, else end.
+    Domain:     now_tw is Asia/Taipei (injected in tests; defaults to wall
+        clock). Applies to bars AND ticks — both resume day-granular from
+        last_date + 1, so a partially-fetched final day would be skipped
+        forever on the next run and is invisible to inspect's day-level gap
+        detection. Explicit --end is clamped too: no escape hatch.
+    Returns:    The capped end date (a note is printed when capping occurs).
+    """
+    now_tw = now_tw or datetime.now(TAIPEI)
+    today_tw = now_tw.date()
+    if end >= today_tw and now_tw.hour < MARKET_DATA_FINAL_HOUR:
+        capped = today_tw - timedelta(days=1)
+        print(f"note: capping --end {end} → {capped} "
+              f"(intraday bars incomplete before 15:00 Taipei)")
+        return capped
+    return end
 
 
 def _add_ticker_args(sub: argparse.ArgumentParser) -> None:
@@ -208,7 +235,7 @@ def _build_per_ticker(
 
     if args.command == "fetch-bars":
         start = _parse_date(args.start)
-        end = _parse_date(args.end) if args.end else date.today()
+        end = _effective_end(_parse_date(args.end) if args.end else date.today())
 
         async def per_ticker(code: str) -> TickerResult:
             return await fetch_bars_one(client, gateway_url, code, start, end, catalog)
@@ -217,7 +244,7 @@ def _build_per_ticker(
 
     if args.command == "fetch-ticks":
         start = _parse_date(args.start)
-        end = _parse_date(args.end) if args.end else date.today()
+        end = _effective_end(_parse_date(args.end) if args.end else date.today())
         # ONE shared gate across the whole batch — quota is a batch-level
         # resource, not per-ticker. The old per-call min_remaining_mb now lives
         # on the gate.

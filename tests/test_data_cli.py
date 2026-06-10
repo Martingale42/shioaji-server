@@ -10,6 +10,8 @@ so no gateway or network is touched.
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import httpx
 import pytest
 
@@ -133,6 +135,36 @@ def test_dispatch_partial_returns_exit_2(monkeypatch) -> None:
 
     rc = cli.main(["fetch-bars", "--codes", "0050,2330"])
     assert rc == 2
+
+
+def test_effective_end_caps_today_before_final_hour() -> None:
+    """end=today @ 10:00 TW is capped to yesterday (intraday bars incomplete)."""
+    now_tw = datetime(2026, 6, 10, 10, 0, tzinfo=cli.TAIPEI)
+    assert cli._effective_end(date(2026, 6, 10), now_tw=now_tw) == date(2026, 6, 9)
+
+
+def test_effective_end_uncapped_after_final_hour() -> None:
+    """end=today @ 15:01 TW is uncapped (data finalized after 15:00)."""
+    now_tw = datetime(2026, 6, 10, 15, 1, tzinfo=cli.TAIPEI)
+    assert cli._effective_end(date(2026, 6, 10), now_tw=now_tw) == date(2026, 6, 10)
+
+
+def test_effective_end_uncapped_at_exactly_final_hour() -> None:
+    """Boundary: 15:00 sharp is NOT capped (`< 15` excludes the hour itself)."""
+    now_tw = datetime(2026, 6, 10, 15, 0, tzinfo=cli.TAIPEI)
+    assert cli._effective_end(date(2026, 6, 10), now_tw=now_tw) == date(2026, 6, 10)
+
+
+def test_effective_end_leaves_historical_end_untouched() -> None:
+    """end=yesterday @ 10:00 TW is unchanged — historical ranges never capped."""
+    now_tw = datetime(2026, 6, 10, 10, 0, tzinfo=cli.TAIPEI)
+    assert cli._effective_end(date(2026, 6, 9), now_tw=now_tw) == date(2026, 6, 9)
+
+
+def test_effective_end_caps_future_end_to_yesterday() -> None:
+    """end=tomorrow @ 10:00 TW is capped to yesterday (`>=` catches the future)."""
+    now_tw = datetime(2026, 6, 10, 10, 0, tzinfo=cli.TAIPEI)
+    assert cli._effective_end(date(2026, 6, 11), now_tw=now_tw) == date(2026, 6, 9)
 
 
 def test_main_returns_1_when_gateway_down(monkeypatch) -> None:
