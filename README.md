@@ -294,6 +294,10 @@ Server 尚未登入。檢查 `.env` 設定或手動呼叫 `/api/auth/login`。
 
 未開通期貨帳戶，需另外向永豐金申請。
 
+### 凌晨/長跑時 session 靜默失效（`/api/health` 顯示 `logged_in:true` 但 `session_alive:false`）
+
+後端 Solace session 可能靜默停止回應（SDK 不發斷線事件、登入旗標仍謊報已連線）。Server 現在內含背景 keepalive watchdog，會主動探活並在連續失敗時自動重登，**無需手動重啟容器**。靈敏度可由 `ShioajiGatewaySession` 的 `keepalive_interval`（探活間隔，預設 `5.0` 秒）與 `keepalive_fail_threshold`（連續失敗門檻，預設 `2`）兩個旋鈕調整。
+
 ### Port 被占用
 
 ```bash

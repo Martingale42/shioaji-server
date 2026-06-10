@@ -73,6 +73,23 @@ class ShioajiGatewaySession:
     def register_callbacks()   # 註冊 SDK callback → WS manager
 ```
 
+#### 靜默死亡自癒 keepalive watchdog
+
+後端 Solace session 可能**靜默失效**（凌晨常見）：不發 SDK `session_down` callback、`connected` 旗標仍謊報 `True`，但任何真正的呼叫都會 `SessionNotEstablished`。為補這個缺口，`ShioajiGatewaySession` 內含一條背景 asyncio task：
+
+- **探活**：每 `keepalive_interval` 秒（預設 `5.0`）打一筆 `check_session(force=True)`（底層 `api.usage()`，`force=True` 繞過 `session_probe_ttl` 快取以取得當下真相）。
+- **觸發**：連續 `keepalive_fail_threshold`（預設 `2`，過濾瞬間 blip）次探針失敗、且 `connected` 仍為 `True`（=靜默死亡）→ 透過 `_schedule_recovery`（`asyncio.create_task`）觸發既有的 `_handle_session_down`，**複用同一套 re-login / re-register / re-subscribe 復原**，不寫新邏輯。
+- **與既有兩個機制互補**：
+  - SDK 的 `session_down` callback（`_schedule_reconnect`）只蓋 **SDK 主動回報**的斷線；
+  - `shioaji-data` CLI 端的 2330 kbar 探針只是**下游守門**（死的就拒跑，能拒不能修）；
+  - watchdog 是 **server 端自癒**，專蓋「靜默死亡」這個缺口。三者最終都進同一支 `_handle_session_down`（`_reconnecting` 鎖把並發觸發收斂成一次，同時響也安全）。
+- **生命週期**：`login()` 成功尾端 `start_keepalive()`（idempotent）、`logout()` 開頭 `stop_keepalive()`（cancel + await + 清 `None`）；`_relogin()` 不碰它（觸發它的 watchdog 本來就還在跑）。`keepalive_interval` / `keepalive_fail_threshold` 是 dataclass field，可調而不動邏輯。
+
+**Known limitation / follow-up：**
+
+- **logout-races-recovery**：若 watchdog 在 `logout()` 前一刻才 `_schedule_recovery()`，`stop_keepalive()` 只 cancel keepalive loop task，**不會** cancel 另一條 in-flight 的 `_recovery_task`，於是 `_handle_session_down` → `_relogin` 可能重登一個使用者剛登出的 session（留下 `connected=True` 與一條活著的 session）。這是先天 race（SDK `session_down` callback 本來就可能觸發），watchdog 只是讓它更容易發生。未來修法：`logout` / `stop_keepalive` 一併 cancel in-flight `_recovery_task`，並讓 logout 對並發復原具有權威性（logout 後不得被復原翻回 connected）。
+- **可選 follow-up**（不在此範圍）：`POST /api/auth/reconnect` 端點直接呼叫 `_handle_session_down`，給維運一個手動槓桿（design doc 提及）。
+
 ### `ws/manager.py` — ConnectionManager
 
 管理 WebSocket 連線和行情分發：
