@@ -30,7 +30,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
+import polars as pl
 from nautilus_trader.model.data import Bar, BarSpecification, BarType
 from nautilus_trader.model.enums import BarAggregation, PriceType
 from nautilus_trader.model.identifiers import Venue
@@ -176,3 +178,30 @@ async def fetch_stock_bars(
             ).date()
 
     return BarsFetchOutcome(total_bars, last_bar_date, truncated=False)
+
+
+def last_bar_date_in_catalog(
+    catalog: ParquetDataCatalog, bar_type: BarType
+) -> date | None:
+    """
+    Definition: UTC date of the newest bar already persisted for *bar_type*.
+    Formula:    max(ts_event) over data/bar/{bar_type}/*.parquet, ns→UTC date.
+    Domain:     Lazy polars scan — never loads full bar data through NT. The
+                returned date is only a safe resume point because
+                fetch_stock_bars guarantees a contiguous error-free prefix.
+                TWSE bars: UTC date == Taiwan trading date (session 01:00–05:30
+                UTC), so day arithmetic needs no tz conversion.
+    Returns:    date of last bar, or None when the instrument has no bar data.
+    """
+    bar_dir = Path(catalog.path) / "data" / "bar" / str(bar_type)
+    if not bar_dir.exists() or not any(bar_dir.glob("*.parquet")):
+        return None
+    max_ns = (
+        pl.scan_parquet(str(bar_dir / "*.parquet"))
+        .select(pl.col("ts_event").max())
+        .collect()
+        .item()
+    )
+    if max_ns is None:
+        return None
+    return datetime.fromtimestamp(max_ns / 1e9, tz=timezone.utc).date()

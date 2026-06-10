@@ -9,22 +9,29 @@ empty month (pre-listing / halt) as success, not truncation.
 
 All tests run fully offline: a scripted fake ``get_kbars`` client that records
 every requested ``(start, end)`` range, and a fake in-memory catalog whose
-``write_data`` appends to a list. No real NautilusTrader ``ParquetDataCatalog``
-and no network are involved.
+``write_data`` appends to a list. No network is involved.
+
+``last_bar_date_in_catalog`` tests deliberately use a *real*
+``ParquetDataCatalog`` against ``tmp_path`` (not the in-memory fake) to lock in
+the on-disk directory-naming assumption ``data/bar/{str(bar_type)}/``: a path
+that silently never matches would turn auto-resume into a permanent no-op.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from nautilus_trader.model.data import BarType
+from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol
+from nautilus_trader.model.objects import Price, Quantity
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
 
 from shioaji_server.data.bars import (
     BAR_SPEC,
     VENUE,
     BarsFetchOutcome,
     fetch_stock_bars,
+    last_bar_date_in_catalog,
 )
 
 # --------------------------------------------------------------------------- #
@@ -208,3 +215,64 @@ async def test_empty_month_is_not_truncation():
     # All three months were requested — the empty month did not abort the loop.
     requested_starts = [start for start, _ in client.requested]
     assert requested_starts == [CHUNK1_START, CHUNK2_START, CHUNK3_START]
+
+
+# --------------------------------------------------------------------------- #
+# last_bar_date_in_catalog — real ParquetDataCatalog round-trip
+# --------------------------------------------------------------------------- #
+
+
+def _bar_at(d: date, bar_type: BarType) -> Bar:
+    """Build a single real NT ``Bar`` on date ``d`` (mirrors ``kbars_to_bars``).
+
+    Definition: Construct an NT ``Bar`` whose ``ts_event``/``ts_init`` is a
+                true-UTC nanosecond timestamp at 02:00 UTC on ``d`` — inside the
+                TWSE session, so the bar's UTC date equals ``d``.
+    Domain:     ``d`` any calendar date; prices/volume arbitrary but valid.
+    Returns:    One ``Bar`` ready for ``catalog.write_data``.
+    """
+    ts_ns = _ns_at(d)
+    return Bar(
+        bar_type=bar_type,
+        open=Price(100.0, precision=2),
+        high=Price(101.0, precision=2),
+        low=Price(99.0, precision=2),
+        close=Price(100.5, precision=2),
+        volume=Quantity(1000, precision=0),
+        ts_event=ts_ns,
+        ts_init=ts_ns,
+    )
+
+
+def test_last_bar_date_round_trip(tmp_path):
+    """A real catalog write is read back: returned date == newest bar's UTC date.
+
+    Locks in the ``data/bar/{str(bar_type)}/*.parquet`` directory-naming
+    assumption against the real ``ParquetDataCatalog`` writer.
+    """
+    bar_type = _bar_type()
+    catalog = ParquetDataCatalog(str(tmp_path))
+
+    older = _bar_at(date(2024, 5, 6), bar_type)
+    newer = _bar_at(date(2024, 5, 8), bar_type)
+    # NT's catalog requires ts_init-non-decreasing input (same reason
+    # fetch_stock_bars sorts before write_data), so write ascending. The function
+    # under test reads max(ts_event), so the returned date must be the newer bar.
+    catalog.write_data([older, newer])
+
+    # Guard: the directory the function scans must actually exist on disk —
+    # if str(bar_type) ever stops matching the catalog layout this fails loudly.
+    bar_dir = tmp_path / "data" / "bar" / str(bar_type)
+    assert bar_dir.is_dir(), f"expected catalog bar dir missing: {bar_dir}"
+    assert any(bar_dir.glob("*.parquet"))
+
+    result = last_bar_date_in_catalog(catalog, bar_type)
+    assert result == date(2024, 5, 8)
+
+
+def test_last_bar_date_empty_catalog_is_none(tmp_path):
+    """A fresh catalog with no bars for this bar_type returns None (no crash)."""
+    bar_type = _bar_type()
+    catalog = ParquetDataCatalog(str(tmp_path))
+
+    assert last_bar_date_in_catalog(catalog, bar_type) is None
