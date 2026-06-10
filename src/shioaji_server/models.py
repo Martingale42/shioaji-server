@@ -187,7 +187,7 @@ class PlaceOrderRequest(BaseModel):
     code: str = Field(description="Contract code, e.g. '2330' for stocks, 'TXFR1' for futures")
     action: Action = Field(description="Buy or Sell")
     price: float = Field(description="Order price (ignored for MKT orders)")
-    quantity: int = Field(description="Order quantity (lots)")
+    quantity: int = Field(description="Order quantity in SHARES for stocks (gateway converts common-lot to lots), contracts for futures/options")
     price_type: PriceType = Field(default=PriceType.LMT, description="LMT=limit, MKT=market, MKP=market range")
     order_type: OrderType = Field(default=OrderType.ROD, description="ROD=day, IOC=immediate-or-cancel, FOK=fill-or-kill")
     order_cond: OrderCond = Field(default=OrderCond.CASH, description="Cash/MarginTrading/ShortSelling (stocks only)")
@@ -217,11 +217,13 @@ class TradeInfo(BaseModel):
     code: str = Field(description="Contract code")
     action: str = Field(description="Buy or Sell")
     price: float = Field(description="Order price")
-    quantity: int = Field(description="Order quantity")
+    quantity: int = Field(description="Order quantity in shares for stocks, contracts for futures/options")
     status: str = Field(description="Order status (e.g. PendingSubmit, Submitted, Filled, Cancelled, Failed)")
     order_type: str = Field(description="ROD/IOC/FOK")
     price_type: str = Field(description="LMT/MKT/MKP")
     custom_field: str = Field(default="", description="Adapter token (max 6 ASCII) for order adoption")
+    filled_qty: int = Field(default=0, description="Filled quantity (shares for stocks, contracts for futures/options)")
+    avg_fill_price: float = Field(default=0.0, description="Volume-weighted average fill price, 0.0 if no fills")
 
 
 # --- Account ---
