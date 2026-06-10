@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Shioaji SDK 的 REST/WebSocket 閘道器，作為 NautilusTrader Shioaji adapter 的後端服務。
+Shioaji SDK 的 REST/WebSocket 閘道器，作為 NautilusTrader Sinopac adapter 的後端服務。
 
 將永豐金 Shioaji Python SDK 包裝為 HTTP API + WebSocket 即時行情推送，讓 NautilusTrader（Rust/PyO3）可透過標準網路協定連接台灣證券/期貨市場。
 
@@ -82,7 +82,7 @@ uv run shioaji-server --live   # 正式環境
 INFO:shioaji_server.app:[shioaji-server] Auto-login starting (simulation)...
 INFO:shioaji_server.app:[shioaji-server] Login successful! 2 account(s):
 INFO:shioaji_server.app:  - Account: 00XXXXXX
-INFO:shioaji_server.app:  - StockAccount: XXXXXXX
+INFO:shioaji_server.app:  - Account: XXXXXXX
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
@@ -102,14 +102,15 @@ Server 啟動後，可在瀏覽器開啟自動產生的互動式 API 文件：
 Server 啟動並登入後，NT adapter 即可連接：
 
 ```python
-from nautilus_trader.adapters.shioaji.config import ShioajiDataClientConfig, ShioajiExecClientConfig
+from nautilus_trader.adapters.sinopac.config import SinopacDataClientConfig, SinopacExecClientConfig
 
-# 預設連接 localhost:8000
-data_config = ShioajiDataClientConfig()
-exec_config = ShioajiExecClientConfig()
+# 預設連接 localhost:8000（可用 gateway_host / gateway_port / gateway_ws_path 覆寫）
+data_config = SinopacDataClientConfig()
+exec_config = SinopacExecClientConfig()
 ```
 
-完整範例見 `nautilus_trader/examples/live/shioaji/`。
+adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapters/sinopac/`
+（`config.py` / `factories.py`）。
 
 ---
 
@@ -160,7 +161,8 @@ exec_config = ShioajiExecClientConfig()
 | `SHIOAJI_SERVER_PORT` | Server 監聽埠（Makefile 會自動讀取） | `8000` |
 | `SHIOAJI_SIMULATION` | 是否為模擬模式（被 `--live` 覆蓋） | `true` |
 | `SHIOAJI_LOG_LEVEL` | Log 等級（debug/info/warning/error） | `info` |
-| `SHIOAJI_ENV_FILE` | 指定 `.env` 檔案路徑 | 自動搜尋 cwd 和上層目錄 |
+| `SHIOAJI_LOG_FILE` | 輪替檔案 log 路徑（`RotatingFileHandler`，10 MB × 3 份；Docker 會 mount 到 host） | `server.log` |
+| `SHIOAJI_ENV_FILE` | 指定 `.env` 檔案路徑 | 自動搜尋 cwd 與上一層目錄 |
 
 ---
 

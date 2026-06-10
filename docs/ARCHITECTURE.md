@@ -41,16 +41,20 @@ Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
 
 - 載入 `.env` 環境變數（搜尋 cwd → parent dir，或 `SHIOAJI_ENV_FILE`）
 - 解析 CLI 參數（`--live`）
-- 設定 log level（`logging.basicConfig` + uvicorn `log_level`）
+- 設定 logging：`logging.basicConfig` + uvicorn `log_level`，並加一個 `RotatingFileHandler`
+  寫入 `SHIOAJI_LOG_FILE`（預設 `server.log`，10 MB × 3 份）——這就是 Docker 把
+  `server.log` bind-mount 出來、host 可直接 `tail -f` 的原因
 - 啟動 uvicorn
 
 ### `app.py` — FastAPI 應用
 
-- 定義 `lifespan`：啟動時建立 `ShioajiGatewaySession` → 自動登入 → 註冊 WS callbacks，關閉時 logout
+- 定義 `lifespan`：啟動時建立 `ShioajiGatewaySession` → 自動登入 →（登入成功才）註冊 WS callbacks，關閉時 logout
 - `_auto_login`：讀取環境變數嘗試登入，缺少時印出設定提示但不 crash
 - 掛載所有 route routers + RuntimeError handler
 - `/ws` WebSocket 端點：處理行情訂閱/取消訂閱
-- `/api/health` 健康檢查
+- `/api/health` 健康檢查：回傳 `{status, logged_in, session_alive, connected}`，其中
+  `connected = logged_in AND session_alive`。`logged_in` 只是登入旗標，`session_alive`
+  則是 `check_session()` 對後端的真實探活——兩者分開才能區分「從未登入」與「session 靜默失效」
 
 ### `session.py` — ShioajiGatewaySession
 
@@ -61,16 +65,24 @@ SDK 的核心封裝層，解決兩個問題：
 
 ```python
 @dataclass
-class ShioajiGatewaySession:
-    api: sj.Shioaji           # SDK 實例
-    connected: bool            # 連線狀態
-    simulation: bool           # 模擬/正式
-    _lock: asyncio.Lock        # 防止並發登入/登出
+class ShioajiGatewaySession:                # 選列重點欄位/方法（實際欄位更多）
+    api: sj.Shioaji                         # SDK 實例
+    connected: bool                         # 登入旗標（注意:靜默死亡時會謊報 True）
+    simulation: bool                        # 模擬/正式
+    _lock: asyncio.Lock                     # 序列化 login / logout / _relogin
+    keepalive_interval: float = 5.0         # watchdog 探活間隔
+    keepalive_fail_threshold: int = 2       # 連續探針失敗門檻 → 觸發復原
+    _keepalive_task / _recovery_task        # 背景 watchdog / 復原 task handle
+    _logout_requested: bool                 # logout 權威性旗標（見下）
+    _reconnecting + _reconnect_lock         # 把並發復原收斂成一次
 
-    async def login(...)       # 非同步登入（executor）
-    async def logout(...)      # 非同步登出（executor）
-    async def run_sync(fn)     # 把任意同步 SDK call 包成 async
-    def register_callbacks()   # 註冊 SDK callback → WS manager
+    async def login(...)        # 非同步登入（executor）+ 尾端 start_keepalive()
+    async def logout(...)       # 開頭 stop_keepalive() + 非同步登出
+    async def run_sync(fn)      # 把任意同步 SDK call 包成 async
+    async def check_session(force=False)    # 真實探活:打 api.usage()，結果快取 ttl
+    def register_callbacks()    # 註冊 SDK callback（含 session_down）→ WS manager
+    def start_keepalive() / stop_keepalive()        # watchdog 生命週期
+    async def _handle_session_down() / _relogin()   # 復原:重登 → 重註冊 → 重訂閱
 ```
 
 #### 靜默死亡自癒 keepalive watchdog
@@ -103,11 +115,11 @@ class ShioajiGatewaySession:
 
 所有 request/response 的資料結構定義，分為：
 
-- **Auth**：`LoginRequest`, `LoginResponse`, `StatusResponse`
+- **Auth / System**：`LoginRequest`, `LoginResponse`, `StatusResponse`, `HealthResponse`
 - **Contracts**：`StockContract`, `FuturesContract`, `OptionsContract`
 - **Market Data**：`SnapshotData`, `TicksResponse`, `KBarsResponse`
-- **Orders**：`PlaceOrderRequest`, `UpdateOrderRequest`, `CancelOrderRequest`, `TradeInfo`
-- **Account**：`Position`, `AccountBalance`, `MarginInfo`, `ProfitLoss`
+- **Orders**：`PlaceOrderRequest`, `UpdateOrderRequest`, `CancelOrderRequest`, `TradeInfo`，加上下單列舉 `Action` / `PriceType` / `OrderType` / `OrderCond` / `OrderLot`（定義可接受的 wire 值）
+- **Account**：`Position`, `AccountBalance`, `MarginInfo`, `ProfitLoss`, `UsageResponse`（每日流量配額）
 
 ### `errors.py` — 錯誤處理
 
@@ -116,9 +128,33 @@ class ShioajiGatewaySession:
 - `Already connected` → 409
 - 其他 → 500
 
+### `data/` — `shioaji-data` 歷史資料 CLI
+
+獨立子套件，經 `pyproject.toml` 的 `shioaji-data = "shioaji_server.data.cli:main"` 暴露為 CLI。
+它是 gateway 的**下游 client**（透過 HTTP 打上面那些 `/api/*` 端點），把 Shioaji→NautilusTrader
+的歷史資料下載/檢查管線收斂成單一指令，寫入 `ParquetDataCatalog`。與 gateway runtime 解耦
+（gateway 不依賴它）。
+
+| 檔案 | 職責 |
+|------|------|
+| `cli.py` | 唯一 CLI 層：argparse 前端 + dispatch。四個子指令 `fetch-bars` / `fetch-ticks` / `instrument-def` / `inspect`，共用 `--catalog` / `--gateway-url`。內含盤中截尾防護 `_effective_end`（台北 15:00 前 cap `--end` 到昨日）與兩段啟動探活 `_check_gateway`（`/api/health` + 真實 2330 kbar 探針）。退出碼 `0`/`2`/`1` |
+| `client.py` | `ShioajiGatewayClient`：對 gateway REST 的 async `httpx` 包裝（`Semaphore(10)` 自我限流，避開 Sinopac 50 req/5s 上限） |
+| `bars.py` | 1 分鐘 bar 引擎 + 續傳基元：`VENUE=Venue("SINOPAC")`、`BAR_SPEC`、`fetch_stock_bars`（月 chunk、retry-then-break）、`last_bar_date_in_catalog`。守住**連續前綴不變式**（錯誤不跳 chunk → catalog 永遠是無洞前綴 → 自動續傳安全） |
+| `fetch.py` | 逐 ticker 驅動 + 批次/配額編排：`fetch_bars_one`/`fetch_ticks_one`/`write_instrument_def_one`（回 `TickerResult`）、tick→`TradeTick` 轉換、共享 `QuotaGate`、`run_batch`、`format_batch_report` |
+| `inspect.py` | catalog 體檢報告（`inspect_catalog`）：列 equity 定義與 bar 品質（筆數/日期範圍/gap） |
+| `instruments.py` | NT instrument 定義的單一事實源：`load_instrument()` 經 pyo3 `SinopacHttpClient` + `SinopacInstrumentProvider`，用**與 live node 相同的 Rust 解析**產出 tick/lot/multiplier/currency |
+
+詳細操作（續傳、盤中保護、探活、退出碼）見 [README 的 `shioaji-data` 段](../README.md#資料下載--shioaji-data-cli)。
+
 ---
 
 ## Routes 路由
+
+### `/api/health` — 系統健康
+
+| Method | Path | 說明 |
+|--------|------|------|
+| GET | `/api/health` | `{status, logged_in, session_alive, connected}`；`connected = logged_in ∧ session_alive`（`session_alive` 為對後端的真實探活，非僅登入旗標） |
 
 ### `/api/auth` — 認證
 
@@ -158,10 +194,11 @@ class ShioajiGatewaySession:
 
 | Method | Path | 說明 |
 |--------|------|------|
-| GET | `/api/account/positions` | 持倉查詢 |
-| GET | `/api/account/balance` | 帳戶餘額 |
-| GET | `/api/account/margin` | 保證金（期貨） |
-| GET | `/api/account/pnl` | 損益查詢 |
+| GET | `/api/account/positions` | 持倉查詢（`market=stock\|futures`，預設 stock） |
+| GET | `/api/account/balance` | 帳戶餘額（股票，TWD） |
+| GET | `/api/account/margin` | 保證金（期貨/選擇權；無期貨帳戶回 400） |
+| GET | `/api/account/pnl` | 已實現損益（股票） |
+| GET | `/api/account/usage` | 每日流量配額（已用/上限/剩餘 bytes），重抓資料前可先查 |
 
 ### `/ws` — WebSocket 即時行情
 
@@ -261,27 +298,44 @@ shioaji-server/
 ├── .gitignore
 ├── Dockerfile              # Docker image 定義
 ├── Makefile                # build/up/down/logs 等命令
-├── pyproject.toml          # 專案設定、依賴
+├── pyproject.toml          # 專案設定、依賴、console scripts（shioaji-server / shioaji-data）
+├── LICENSE                 # MIT
 ├── server.log              # 執行日誌（gitignored，Docker mount）
 ├── Sinopac.pfx             # CA 憑證（gitignored，Docker mount）
+├── catalog/                # ParquetDataCatalog 輸出（gitignored，shioaji-data 寫入）
 ├── README.md               # 快速開始指南
 ├── docs/
 │   ├── ARCHITECTURE.md     # 本文件
-│   └── REFERENCE.md        # API 速查手冊
+│   ├── REFERENCE.md        # API 速查手冊
+│   ├── architecture-diagram.png / .excalidraw
+│   └── plans/ qa/ reviews/ sessions/ AUDIT.md BACKLOG.md  # 設計/審查工作文件
+├── scripts/                # 一次性維護鏈（restamp / regen / verify catalog），非日常路徑
+│   └── maintenance/
+├── tests/                  # pytest（offline；gateway/SDK 皆 mock）
 └── src/
     └── shioaji_server/
         ├── __init__.py
-        ├── __main__.py     # 入口：載入 .env、CLI 參數、啟動 uvicorn
-        ├── app.py          # FastAPI app、lifespan、auto-login、WS 端點
-        ├── session.py      # ShioajiGatewaySession：SDK 封裝、async bridge
+        ├── __main__.py     # 入口：載入 .env、logging（含 RotatingFileHandler）、CLI、uvicorn
+        ├── app.py          # FastAPI app、lifespan、auto-login、/api/health、/ws
+        ├── session.py      # ShioajiGatewaySession：SDK 封裝、async bridge、keepalive watchdog
         ├── errors.py       # RuntimeError → HTTP status 映射
-        ├── models.py       # Pydantic request/response models
+        ├── models.py       # Pydantic request/response models + 下單列舉
         ├── routes/
+        │   ├── __init__.py
         │   ├── auth.py     # 登入/登出/狀態
         │   ├── contracts.py# 合約查詢
         │   ├── market_data.py # 行情查詢（snapshot/ticks/kbars）
         │   ├── orders.py   # 下單/改單/刪單/查詢
-        │   └── account.py  # 持倉/餘額/保證金/損益
-        └── ws/
-            └── manager.py  # WebSocket 連線管理、行情分發
+        │   └── account.py  # 持倉/餘額/保證金/損益/流量配額
+        ├── ws/
+        │   ├── __init__.py
+        │   └── manager.py  # WebSocket 連線管理、行情分發
+        └── data/           # shioaji-data CLI：Shioaji→NT 歷史資料管線（gateway 下游 client）
+            ├── __init__.py
+            ├── cli.py      # argparse 前端（fetch-bars/fetch-ticks/instrument-def/inspect）
+            ├── client.py   # ShioajiGatewayClient：對 gateway 的 async httpx 包裝
+            ├── bars.py     # 1 分鐘 bar 引擎 + 連續前綴續傳基元
+            ├── fetch.py    # 逐 ticker 驅動 + QuotaGate + run_batch
+            ├── inspect.py  # catalog 體檢/bar 品質報告
+            └── instruments.py # NT instrument 定義載入（SinopacInstrumentProvider）
 ```
