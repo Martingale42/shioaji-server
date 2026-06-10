@@ -376,6 +376,14 @@ class ShioajiGatewaySession:
             self.connected = True
             self._session_ok = True
             self._session_checked_at = -1.0
+        # Logout may have intervened while we held _lock (it waits on the same
+        # lock, then tears the session down). Skip re-register/re-subscribe in
+        # that case — there are no streams to restore on a logged-out session,
+        # and subscribing would just fail, retry to the cap, and log spurious
+        # ERRORs. This re-check is outside _lock and best-effort; it narrows the
+        # window, and the logout-authority invariant already holds regardless.
+        if self._logout_requested:
+            return
         # Re-register + re-subscribe outside _lock (they don't rebuild the SDK).
         if self._manager is not None:
             self.register_callbacks(self._manager)

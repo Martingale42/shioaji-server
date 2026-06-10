@@ -316,3 +316,63 @@ async def test_login_resets_logout_requested(monkeypatch):
     await client.login(api_key="k", secret_key="s")
     assert client._logout_requested is False and client.connected is True
     await client.logout()  # clean teardown (stop_keepalive)
+
+
+async def test_relogin_skips_resubscribe_when_logout_requested_after_lock(monkeypatch):
+    """Logout winning _lock right after _relogin's rebuild must skip the
+    post-lock re-register/re-subscribe tail.
+
+    The under-lock guard at the top of _relogin only catches logout that won the
+    lock FIRST. This pins the additional post-lock guard: if logout intervenes
+    while _relogin holds the lock (it waits on the same lock, then tears the
+    session down), the tail must not re-subscribe onto a torn-down session —
+    that would just fail, retry to the cap, and log spurious ERRORs.
+
+    Deterministic setup: _login_sync flips _logout_requested True as it runs,
+    simulating logout taking the lock the instant _relogin releases it.
+    """
+    client = _down_client()
+
+    def login_then_logout_wins(*_args):
+        # Simulate logout winning the lock the moment the rebuild completes.
+        client._logout_requested = True
+        return []
+
+    monkeypatch.setattr(client, "_login_sync", login_then_logout_wins)
+    client._manager = MagicMock()
+    client._manager.subscriptions = {("2330", "tick"): set()}
+    reg = MagicMock()
+    monkeypatch.setattr(client, "register_callbacks", reg)
+    resub = AsyncMock()
+    monkeypatch.setattr(client, "_resubscribe", resub)
+
+    await client._relogin()
+
+    # connected is True from the rebuild — that's fine; logout would set it
+    # False. This test pins only that the post-lock tail is skipped.
+    assert client.connected is True
+    resub.assert_not_awaited()  # no re-subscribe onto a logged-out session
+    reg.assert_not_called()  # no re-register after the rebuild
+
+
+async def test_concurrent_relogin_and_logout_ends_logged_out(monkeypatch):
+    """Race the prior sequential authority tests didn't exercise: no matter how
+    _relogin and logout interleave on _lock, logout wins the final state.
+    """
+    client = ShioajiGatewaySession(api=MagicMock())
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    monkeypatch.setattr(client, "_logout_sync", MagicMock())
+    await client.login(api_key="k", secret_key="s")
+    assert client.connected is True
+    client._manager = None  # fully offline — no re-subscribe path
+
+    # Bounded operations; wrap in wait_for with a generous timeout so a
+    # regression that deadlocks fails loudly instead of hanging the suite.
+    await asyncio.wait_for(
+        asyncio.gather(client._relogin(), client.logout()),
+        timeout=5.0,
+    )
+
+    # Logout is authoritative regardless of interleaving.
+    assert client.connected is False
+    assert client._logout_requested is True
