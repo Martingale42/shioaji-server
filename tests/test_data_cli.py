@@ -177,3 +177,64 @@ def test_main_returns_1_when_gateway_down(monkeypatch) -> None:
 
     rc = cli.main(["instrument-def", "--code", "0050"])
     assert rc == 1
+
+
+# --- Two-stage liveness probe (health + real 2330 kbar) -------------------
+#
+# These exercise `_check_gateway` end-to-end WITHOUT a network by injecting an
+# `httpx.MockTransport` via the new `transport` parameter. The handler routes
+# by URL path: `/api/health` returns a scripted status, `/api/market/kbars`
+# returns a scripted JSON body (`{"ts": [...]}` non-empty = alive session,
+# `{"ts": []}` = stale Solace session masked by a healthy login flag).
+
+
+def _make_transport(health_status: int = 200, ts=None) -> httpx.MockTransport:
+    """Build an offline transport scripting /api/health + /api/market/kbars."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/health":
+            return httpx.Response(health_status)
+        if request.url.path == "/api/market/kbars":
+            return httpx.Response(200, json={"ts": ts if ts is not None else []})
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+async def test_check_gateway_alive_returns_without_raising() -> None:
+    """health 200 + a non-empty 2330 kbar probe → session alive, no raise."""
+    await cli._check_gateway(
+        "http://gw", transport=_make_transport(ts=[1, 2, 3])
+    )
+
+
+async def test_check_gateway_raises_stale_on_empty_probe() -> None:
+    """health 200 but an empty kbar probe → stale Solace session detected."""
+    with pytest.raises(cli.GatewayStaleError):
+        await cli._check_gateway(
+            "http://gw", transport=_make_transport(ts=[])
+        )
+
+
+async def test_check_gateway_raises_on_unhealthy_health_endpoint() -> None:
+    """health 500 → HTTPStatusError; the probe stage is never reached."""
+    with pytest.raises(httpx.HTTPStatusError):
+        await cli._check_gateway(
+            "http://gw", transport=_make_transport(health_status=500)
+        )
+
+
+def test_main_returns_1_when_gateway_session_stale(monkeypatch, capsys) -> None:
+    """A stale session (GatewayStaleError) exits 1 with a distinct 'stale' note."""
+
+    async def stale(gateway_url: str) -> None:
+        raise cli.GatewayStaleError(
+            "health OK but 2330 kbar probe returned no data "
+            "— Solace session likely stale; re-login the gateway"
+        )
+
+    monkeypatch.setattr(cli, "_check_gateway", stale)
+
+    rc = cli.main(["instrument-def", "--code", "0050"])
+    assert rc == 1
+    assert "stale" in capsys.readouterr().out

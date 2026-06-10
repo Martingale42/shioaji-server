@@ -50,6 +50,13 @@ FETCH_COMMANDS = ("fetch-bars", "fetch-ticks", "instrument-def")
 TAIPEI = ZoneInfo("Asia/Taipei")
 MARKET_DATA_FINAL_HOUR = 15  # 13:30 close + TWSE data-finalization buffer
 
+PROBE_CODE = "2330"          # TSMC: always has data → near-zero false negatives
+PROBE_WINDOW_DAYS = 14       # survives the longest TW holiday break (CNY ~10d)
+
+
+class GatewayStaleError(RuntimeError):
+    """Health endpoint OK but a real kbar probe returned no data."""
+
 
 def _effective_end(end: date, now_tw: datetime | None = None) -> date:
     """
@@ -208,14 +215,40 @@ def _parse_date(value: str) -> date:
     return date.fromisoformat(value)
 
 
-async def _check_gateway(gateway_url: str) -> None:
-    """Pre-flight ``GET {gateway_url}/api/health``; raise on connect failure.
+async def _check_gateway(
+    gateway_url: str, transport: httpx.AsyncBaseTransport | None = None
+) -> None:
+    """Two-stage pre-flight: HTTP health, then a real 2330 kbar probe.
 
-    Lets ``httpx.ConnectError`` propagate so ``main`` can render the friendly
-    "gateway not reachable" message and exit 1.
+    ``/api/health`` only reflects the login flag — a silently-dead Solace
+    session still reports healthy (known gotcha). Only an actual market-data
+    request proves the session is alive. Raises ``httpx.ConnectError``
+    (unreachable), ``httpx.HTTPStatusError`` (health/kbars non-2xx), or
+    :class:`GatewayStaleError` (empty probe) so ``main`` can render distinct
+    operator-facing messages and exit 1.
+
+    The optional *transport* lets tests script HTTP responses offline via
+    :class:`httpx.MockTransport` without touching the network.
     """
-    async with httpx.AsyncClient(timeout=10.0) as probe:
-        await probe.get(f"{gateway_url}/api/health")
+    async with httpx.AsyncClient(timeout=10.0, transport=transport) as probe:
+        health = await probe.get(f"{gateway_url}/api/health")
+        health.raise_for_status()
+        today = date.today()
+        kb = await probe.get(
+            f"{gateway_url}/api/market/kbars",
+            params={
+                "code": PROBE_CODE,
+                "start": (today - timedelta(days=PROBE_WINDOW_DAYS)).isoformat(),
+                "end": today.isoformat(),
+                "market": "stock",
+            },
+        )
+        kb.raise_for_status()
+        if not kb.json().get("ts"):
+            raise GatewayStaleError(
+                f"health OK but {PROBE_CODE} kbar probe returned no data "
+                f"— Solace session likely stale; re-login the gateway"
+            )
 
 
 def _build_per_ticker(
@@ -266,7 +299,8 @@ def main(argv: list[str] | None = None) -> int:
     """Parse args, pre-flight the gateway, dispatch a subcommand, return exit code.
 
     Returns: ``0`` if every ticker completed, ``2`` if any partial/failed
-    result is present, ``1`` if the gateway is unreachable.
+    result is present, ``1`` if the gateway is unreachable OR its session is
+    stale/unhealthy (the 2330 kbar probe fails — see :func:`_check_gateway`).
     """
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -285,6 +319,9 @@ def main(argv: list[str] | None = None) -> int:
             f"gateway not reachable at {args.gateway_url} — container up & "
             f"logged in? (curl {args.gateway_url}/api/health)"
         )
+        return 1
+    except (GatewayStaleError, httpx.HTTPStatusError) as e:
+        print(f"gateway session stale or unhealthy at {args.gateway_url}: {e}")
         return 1
 
     codes = resolve_codes(args)
