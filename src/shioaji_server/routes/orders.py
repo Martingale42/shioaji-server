@@ -66,9 +66,21 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
         price_type = getattr(sj.constant.StockPriceType, req.price_type)
         order_cond = getattr(sj.constant.StockOrderCond, req.order_cond)
         order_lot = getattr(sj.constant.StockOrderLot, req.order_lot)
+        # The wire unit is shares (D1); Shioaji expects lots for common-lot stock
+        # orders (1 lot = 1000 shares) and shares for odd-lot orders. Convert at
+        # this SDK boundary so the gateway owns all venue-unit knowledge.
+        if order_lot == sj.constant.StockOrderLot.Common:
+            if req.quantity % 1000 != 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Common-lot quantity must be a multiple of 1000 shares, was {req.quantity}",
+                )
+            sj_quantity = req.quantity // 1000  # shares -> lots at the SDK boundary
+        else:
+            sj_quantity = req.quantity  # odd-lot orders are share-denominated in Shioaji
         order = api.Order(
             price=req.price,
-            quantity=req.quantity,
+            quantity=sj_quantity,
             action=action,
             price_type=price_type,
             order_type=getattr(sj.constant.OrderType, req.order_type),
@@ -79,9 +91,10 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
         )
     else:
         price_type = getattr(sj.constant.FuturesPriceType, req.price_type)
+        sj_quantity = req.quantity  # futures/options quantity is contracts, unchanged
         order = api.Order(
             price=req.price,
-            quantity=req.quantity,
+            quantity=sj_quantity,
             action=action,
             price_type=price_type,
             order_type=getattr(sj.constant.OrderType, req.order_type),
@@ -94,6 +107,16 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
         trade = await sj_client.run_sync(_place_order_sync, api, contract, order)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Second line of defense against venue rejection. This catches only rejects
+    # the SDK surfaces synchronously (status already Failed/Inactive on return).
+    # In simulation, off-tick / out-of-band orders return PendingSubmit here and
+    # are rejected asynchronously later via the order-event stream (op_code != "00");
+    # that async path is handled downstream in the NT exec client (plan Task 3.3).
+    status = str(trade.status.status)
+    if status.split(".")[-1] in ("Failed", "Inactive"):
+        raise HTTPException(status_code=422, detail=f"Order rejected by venue: {status}")
+
     return {
         "trade_id": str(trade.status.id),
         "code": req.code,
