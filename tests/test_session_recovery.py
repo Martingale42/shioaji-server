@@ -254,3 +254,13 @@ async def test_keepalive_loop_survives_tick_exception(monkeypatch):
         await task
     except asyncio.CancelledError:
         pass
+
+
+async def test_login_starts_and_logout_stops_keepalive(monkeypatch):
+    client = ShioajiGatewaySession(api=MagicMock())
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    monkeypatch.setattr(client, "_logout_sync", MagicMock())
+    await client.login(api_key="k", secret_key="s")
+    assert client._keepalive_task is not None and not client._keepalive_task.done()
+    await client.logout()
+    assert client._keepalive_task is None

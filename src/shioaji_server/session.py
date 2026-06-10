@@ -95,12 +95,19 @@ class ShioajiGatewaySession:
                 "ca_passwd": ca_passwd,
                 "simulation": simulation,
             }
+            # Start the silent-death watchdog now that the session is fully
+            # established (connected + stored credentials), so a probe failure
+            # can fire recovery.
+            self.start_keepalive()
             return accounts
 
     def _logout_sync(self) -> None:
         self.api.logout()
 
     async def logout(self) -> None:
+        # Halt the watchdog before anything else so a logout always stops
+        # probing, regardless of the connected check below.
+        await self.stop_keepalive()
         async with self._lock:
             if not self.connected:
                 return
