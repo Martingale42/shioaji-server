@@ -310,6 +310,129 @@ git commit -m "docs: document gateway silent-death self-healing keepalive watchd
 
 ---
 
+### Task 5: Make logout authoritative over a concurrent recovery (close the logout-races-recovery gap)
+
+**Files:**
+- Modify: `src/shioaji_server/session.py`
+- Test: `tests/test_session_recovery.py` (extend)
+
+**Context:** The watchdog (or the SDK `session_down` callback) can fire `_handle_session_down` → `_relogin` concurrently with a `logout()`. `stop_keepalive()` only cancels the watchdog *loop*, not an in-flight `_recovery_task`, so a recovery can re-login a session the user just logged out (`connected=True` + live session after logout). This task closes that gap.
+
+**Mechanism — flag-based authority, NOT task cancellation.** Cancelling `_recovery_task` mid-`_relogin` is UNSAFE: `_relogin` rebuilds the SDK via `await loop.run_in_executor(None, self._login_sync)`, and `run_in_executor` futures are not truly cancellable — cancelling the asyncio task abandons the await but the thread-pool thread runs `_login_sync` to completion, reassigning `self.api` to a freshly-logged-in SDK *after* logout, racing logout's `_logout_sync` on the same `self.api`. Instead, make logout authoritative via an intent flag plus the existing `_lock` serialization (both `_relogin` and `logout` already take `_lock`), so `_relogin` is never cancelled mid-executor — it always completes under `_lock` and defers to logout via the flag.
+
+**Implementation:**
+
+1. New dataclass field (with the keepalive fields, ~`session.py:38-41`):
+```python
+_logout_requested: bool = False
+```
+
+2. `login()` — reset the flag when a login commits, so re-login after a prior logout works. Add inside the `_lock` block, right before `self.connected = True` (~`session.py:86`):
+```python
+self._logout_requested = False
+```
+
+3. `logout()` — set the flag FIRST, before `await self.stop_keepalive()` (~`session.py:110`), so any `_relogin` that has not yet started its rebuild will bail:
+```python
+async def logout(self) -> None:
+    self._logout_requested = True
+    await self.stop_keepalive()
+    async with self._lock:
+        if not self.connected:
+            return
+        ...  # existing _logout_sync + connected=False
+```
+
+4. `_relogin()` — at the TOP of its `async with self._lock:` block (~`session.py:337`), before the rebuild, bail if logout intervened:
+```python
+async with self._lock:
+    if self._logout_requested:
+        return  # logout is authoritative — do not resurrect a logged-out session
+    loop = asyncio.get_running_loop()
+    ...  # existing tear-down + _login_sync rebuild + connected=True
+```
+
+5. `_handle_session_down()` — at the TOP of the `while True:` loop (~`session.py:296`), bail so the in-flight recovery self-terminates at its next checkpoint instead of being force-cancelled:
+```python
+while True:
+    if self._logout_requested:
+        return
+    try:
+        await self._relogin()
+    ...
+```
+
+Do NOT cancel `_recovery_task`. Do NOT alter the executor calls. A recovery sleeping in backoff may linger ≤`reconnect_max_backoff`s after logout, then wake, see the flag, and return — harmless (no rebuild, no live session).
+
+**Authority argument (must hold for all interleavings → final state always logged-out):**
+- logout wins `_lock` first → `connected=False`; then `_relogin` gets `_lock`, sees flag, returns. ✓
+- `_relogin` gets `_lock` but flag already set → returns, no rebuild; logout tears down. ✓
+- `_relogin` already past the flag-check, mid-rebuild → completes under `_lock` (never cancelled), sets `connected=True`; logout *waits* for `_lock`, then `_logout_sync` tears down the rebuilt session, `connected=False`. ✓ One wasted cycle, no leak, no orphaned thread.
+
+**Tests (Required — the authority contract; deterministic building blocks, no real race needed):**
+
+```python
+async def test_relogin_bails_when_logout_requested(monkeypatch):
+    client = _down_client()                 # has _login_kwargs, connected=False
+    client._logout_requested = True
+    spy = MagicMock(return_value=[])
+    monkeypatch.setattr(client, "_login_sync", spy)
+    client._manager = None
+    await client._relogin()
+    spy.assert_not_called()                 # no rebuild
+    assert client.connected is False        # not resurrected
+
+async def test_handle_session_down_stops_when_logout_requested(monkeypatch):
+    client = _down_client()
+    client._logout_requested = True
+    relogin = AsyncMock()
+    monkeypatch.setattr(client, "_relogin", relogin)
+    await client._handle_session_down()
+    relogin.assert_not_awaited()            # retry loop bailed at the top
+    assert client._reconnecting is False    # flag cleared
+
+async def test_logout_then_relogin_does_not_resurrect(monkeypatch):
+    client = ShioajiGatewaySession(api=MagicMock())
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    monkeypatch.setattr(client, "_logout_sync", MagicMock())
+    await client.login(api_key="k", secret_key="s")
+    assert client.connected is True
+    await client.logout()
+    assert client._logout_requested is True and client.connected is False
+    # a recovery firing after logout must NOT bring the session back
+    relogin_spy = MagicMock(return_value=[])
+    monkeypatch.setattr(client, "_login_sync", relogin_spy)
+    client._manager = None
+    await client._relogin()
+    relogin_spy.assert_not_called()
+    assert client.connected is False
+
+async def test_login_resets_logout_requested(monkeypatch):
+    client = ShioajiGatewaySession(api=MagicMock())
+    client._logout_requested = True
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    await client.login(api_key="k", secret_key="s")
+    assert client._logout_requested is False and client.connected is True
+    await client.logout()  # clean teardown (stop_keepalive)
+```
+
+**Verification:**
+
+Run: `timeout 120 uv run pytest tests/test_session_recovery.py -v`
+Expected: prior 15 + 4 new = 19 pass.
+Run: `timeout 180 uv run pytest tests/ -q`
+Expected: 107 passed; paste tail. `uv run ruff check src tests` clean.
+
+**Also update `docs/ARCHITECTURE.md`:** change the "Known limitation — logout-races-recovery" note from an open limitation to **resolved** (flag-based authority: logout sets `_logout_requested`; `_relogin`/`_handle_session_down` defer to it under `_lock`; no task cancellation, so no orphaned-executor hazard). Keep the optional `POST /api/auth/reconnect` follow-up note.
+
+**Commit:**
+```bash
+git add src/shioaji_server/session.py tests/test_session_recovery.py docs/ARCHITECTURE.md
+git commit -m "fix: make logout authoritative over concurrent session recovery"
+```
+
+---
+
 ## Notes for the implementer
 
 - **Do not** call `_schedule_reconnect` from the watchdog — it is the cross-thread SDK-callback path. The watchdog is in-loop; use `_schedule_recovery` (`create_task`).
