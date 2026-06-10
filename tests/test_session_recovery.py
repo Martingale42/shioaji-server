@@ -264,3 +264,55 @@ async def test_login_starts_and_logout_stops_keepalive(monkeypatch):
     assert client._keepalive_task is not None and not client._keepalive_task.done()
     await client.logout()
     assert client._keepalive_task is None
+
+
+async def test_relogin_bails_when_logout_requested(monkeypatch):
+    """A recovery that wakes after logout must not rebuild the SDK."""
+    client = _down_client()
+    client._logout_requested = True
+    spy = MagicMock(return_value=[])
+    monkeypatch.setattr(client, "_login_sync", spy)
+    client._manager = None
+    await client._relogin()
+    spy.assert_not_called()  # no rebuild
+    assert client.connected is False  # not resurrected
+
+
+async def test_handle_session_down_stops_when_logout_requested(monkeypatch):
+    """The recovery retry loop bails at the top when logout intervened."""
+    client = _down_client()
+    client._logout_requested = True
+    relogin = AsyncMock()
+    monkeypatch.setattr(client, "_relogin", relogin)
+    await client._handle_session_down()
+    relogin.assert_not_awaited()  # retry loop bailed at the top
+    assert client._reconnecting is False  # flag cleared
+
+
+async def test_logout_then_relogin_does_not_resurrect(monkeypatch):
+    """End-to-end: login -> logout -> a late recovery must not bring it back."""
+    client = ShioajiGatewaySession(api=MagicMock())
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    monkeypatch.setattr(client, "_logout_sync", MagicMock())
+    await client.login(api_key="k", secret_key="s")
+    assert client.connected is True
+    await client.logout()
+    assert client._logout_requested is True and client.connected is False
+    # a recovery firing after logout must NOT bring the session back
+    relogin_spy = MagicMock(return_value=[])
+    monkeypatch.setattr(client, "_login_sync", relogin_spy)
+    client._manager = None
+    await client._relogin()
+    relogin_spy.assert_not_called()
+    assert client.connected is False
+
+
+async def test_login_resets_logout_requested(monkeypatch):
+    """A fresh login supersedes a prior logout's authority and reconnects."""
+    client = ShioajiGatewaySession(api=MagicMock())
+    client._logout_requested = True
+    monkeypatch.setattr(client, "_login_sync", MagicMock(return_value=[]))
+    monkeypatch.setattr(client, "_logout_sync", MagicMock())
+    await client.login(api_key="k", secret_key="s")
+    assert client._logout_requested is False and client.connected is True
+    await client.logout()  # clean teardown (stop_keepalive)

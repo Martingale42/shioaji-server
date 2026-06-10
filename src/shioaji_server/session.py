@@ -39,6 +39,7 @@ class ShioajiGatewaySession:
     keepalive_fail_threshold: int = 2
     _keepalive_task: asyncio.Task | None = None
     _recovery_task: asyncio.Task | None = None
+    _logout_requested: bool = False
 
     def _login_sync(
         self,
@@ -83,6 +84,9 @@ class ShioajiGatewaySession:
                 ca_passwd,
                 simulation,
             )
+            # Clear any prior logout intent so a re-login after logout commits
+            # (logout is authoritative only until a fresh login supersedes it).
+            self._logout_requested = False
             self.connected = True
             self.simulation = simulation
             self._session_ok = True
@@ -105,6 +109,10 @@ class ShioajiGatewaySession:
         self.api.logout()
 
     async def logout(self) -> None:
+        # Signal logout intent FIRST so any concurrent recovery that has not yet
+        # started its SDK rebuild bails — logout is authoritative — don't
+        # resurrect a logged-out session.
+        self._logout_requested = True
         # Halt the watchdog before anything else so a logout always stops
         # probing, regardless of the connected check below.
         await self.stop_keepalive()
@@ -294,6 +302,12 @@ class ShioajiGatewaySession:
         attempts = 0
         try:
             while True:
+                # Logout is authoritative — don't resurrect a logged-out session.
+                # A recovery lingering in backoff wakes here, sees the flag, and
+                # self-terminates instead of being force-cancelled (which would
+                # orphan an in-flight _login_sync executor thread).
+                if self._logout_requested:
+                    return
                 try:
                     await self._relogin()
                     log.info(
@@ -335,6 +349,12 @@ class ShioajiGatewaySession:
         # parallel — otherwise both create a new sj.Shioaji() and the orphaned
         # one leaks a Solace connection (Shioaji caps at 5 per person).
         async with self._lock:
+            # Logout is authoritative — don't resurrect a logged-out session.
+            # Checked under _lock so logout (which also takes _lock) and this
+            # rebuild are serialized: if logout won the lock first, the flag is
+            # already set and we bail before touching self.api.
+            if self._logout_requested:
+                return
             loop = asyncio.get_running_loop()
             # Best-effort release of the dead session; a dead-session logout may
             # error or hang — bound it and ignore failures.

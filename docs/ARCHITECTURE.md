@@ -85,9 +85,9 @@ class ShioajiGatewaySession:
   - watchdog 是 **server 端自癒**，專蓋「靜默死亡」這個缺口。三者最終都進同一支 `_handle_session_down`（`_reconnecting` 鎖把並發觸發收斂成一次，同時響也安全）。
 - **生命週期**：`login()` 成功尾端 `start_keepalive()`（idempotent）、`logout()` 開頭 `stop_keepalive()`（cancel + await + 清 `None`）；`_relogin()` 不碰它（觸發它的 watchdog 本來就還在跑）。`keepalive_interval` / `keepalive_fail_threshold` 是 dataclass field，可調而不動邏輯。
 
-**Known limitation / follow-up：**
+**已解決 / follow-up：**
 
-- **logout-races-recovery**：若 watchdog 在 `logout()` 前一刻才 `_schedule_recovery()`，`stop_keepalive()` 只 cancel keepalive loop task，**不會** cancel 另一條 in-flight 的 `_recovery_task`，於是 `_handle_session_down` → `_relogin` 可能重登一個使用者剛登出的 session（留下 `connected=True` 與一條活著的 session）。這是先天 race（SDK `session_down` callback 本來就可能觸發），watchdog 只是讓它更容易發生。未來修法：`logout` / `stop_keepalive` 一併 cancel in-flight `_recovery_task`，並讓 logout 對並發復原具有權威性（logout 後不得被復原翻回 connected）。
+- **logout-races-recovery（RESOLVED）**：原問題是 watchdog 在 `logout()` 前一刻才 `_schedule_recovery()` 時，`stop_keepalive()` 只 cancel keepalive loop task、不會 cancel 另一條 in-flight 的 `_recovery_task`，於是 `_handle_session_down` → `_relogin` 可能重登一個剛登出的 session。現以**旗標式權威（flag-based authority）**修正：`logout()` 第一件事就設 `_logout_requested = True`；`_relogin()` 在其 `_lock` 區塊頂端、`_handle_session_down()` 在 retry 迴圈頂端都檢查此旗標並 `return`，於是 logout 對並發復原具有權威性（登出後不得被復原翻回 connected），`login()` 在 commit 前清旗標讓後續重登仍可生效。**刻意不 cancel `_recovery_task`**：`_relogin` 經由 `loop.run_in_executor(None, self._login_sync)` 重建 SDK，executor future 並非真正可取消——cancel asyncio task 只會放棄 await，thread pool 仍把 `_login_sync` 跑完、在 logout 之後把 `self.api` 換成剛登入的 SDK，反而與 logout 的 `_logout_sync` 撞同一個 `self.api`。改走旗標 + 既有 `_lock` 序列化後，`_relogin` 永遠在 `_lock` 下完整跑完、不會被半路 cancel，因此沒有 orphaned-executor 危險（最壞情況只是復原在 backoff 中多睡一會、醒來見旗標即 return，無重建、無活 session）。
 - **可選 follow-up**（不在此範圍）：`POST /api/auth/reconnect` 端點直接呼叫 `_handle_session_down`，給維運一個手動槓桿（design doc 提及）。
 
 ### `ws/manager.py` — ConnectionManager
