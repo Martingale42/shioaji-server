@@ -238,3 +238,146 @@ def test_place_order_futures_octype_defaults_auto(app, client):
 
     assert resp.status_code == 200
     assert api.Order.call_args.kwargs["octype"] is sj.constant.FuturesOCType.Auto
+
+
+# ---------------------------------------------------------------------------
+# update_order: odd-lot price-modification guard
+# ---------------------------------------------------------------------------
+
+def _wire_update(app, *, order_lot_value: str) -> MagicMock:
+    """Wire a single resolvable trade whose order has the given order_lot value."""
+    sj = app.state.sj
+    api = sj.api
+
+    trade = MagicMock()
+    trade.status.id = "trade-mod"
+    trade.order.order_lot = MagicMock()
+    trade.order.order_lot.value = order_lot_value
+
+    api.list_trades = MagicMock(return_value=[trade])
+    api.update_order = MagicMock()
+
+    async def fake_run_sync(fn, *args):
+        return fn(*args)
+
+    sj.run_sync = fake_run_sync
+    return api
+
+
+def test_update_intraday_odd_price_change_rejected_422(app, client):
+    """Changing the price of an IntradayOdd order returns 422 and skips the SDK."""
+    api = _wire_update(app, order_lot_value="IntradayOdd")
+
+    resp = client.put(
+        "/api/orders/update",
+        json={"trade_id": "trade-mod", "price": 581.0},
+    )
+
+    assert resp.status_code == 422
+    assert "IntradayOdd orders cannot change price" in resp.json()["detail"]
+    api.update_order.assert_not_called()
+
+
+def test_update_intraday_odd_quantity_reduce_allowed(app, client):
+    """Reducing the quantity of an IntradayOdd order (no price) is permitted."""
+    api = _wire_update(app, order_lot_value="IntradayOdd")
+
+    resp = client.put(
+        "/api/orders/update",
+        json={"trade_id": "trade-mod", "quantity": 10},
+    )
+
+    assert resp.status_code == 200
+    api.update_order.assert_called_once()
+    assert api.update_order.call_args.kwargs["qty"] == 10
+
+
+def test_update_common_lot_price_change_allowed(app, client):
+    """Common-lot orders may still change price (guard is odd-lot only)."""
+    api = _wire_update(app, order_lot_value="Common")
+
+    resp = client.put(
+        "/api/orders/update",
+        json={"trade_id": "trade-mod", "price": 581.0},
+    )
+
+    assert resp.status_code == 200
+    assert api.update_order.call_args.kwargs["price"] == 581.0
+
+
+# ---------------------------------------------------------------------------
+# list_trades: order_lot / order_cond exposure
+# ---------------------------------------------------------------------------
+
+def _wire_list_trades(app, trade: MagicMock) -> None:
+    """Wire list_trades to return a single trade with a stock-only account."""
+    sj = app.state.sj
+    api = sj.api
+
+    api.stock_account = MagicMock()
+    api.futopt_account = None
+    api.update_status = MagicMock()
+    api.list_trades = MagicMock(return_value=[trade])
+
+    async def fake_run_sync(fn, *args):
+        return fn(*args)
+
+    sj.run_sync = fake_run_sync
+
+
+def test_list_trades_exposes_order_lot_and_cond_for_stock(app, client):
+    """A stock trade surfaces its enum-valued order_lot and order_cond."""
+    trade = MagicMock()
+    trade.status.id = "trade-l1"
+    trade.contract.code = "2330"
+    trade.order.action = "Buy"
+    trade.order.price = 580.0
+    trade.order.quantity = 37
+    trade.status.status = "Submitted"
+    trade.status.deals = []
+    trade.status.deal_quantity = 0
+    trade.order.order_type = "ROD"
+    trade.order.price_type = "LMT"
+    trade.order.custom_field = ""
+    # SDK exposes these as StrEnum-like objects carrying a .value.
+    trade.order.order_lot = MagicMock()
+    trade.order.order_lot.value = "IntradayOdd"
+    trade.order.order_cond = MagicMock()
+    trade.order.order_cond.value = "Cash"
+
+    _wire_list_trades(app, trade)
+
+    resp = client.get("/api/orders/trades")
+
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["order_lot"] == "IntradayOdd"
+    assert row["order_cond"] == "Cash"
+
+
+def test_list_trades_order_lot_cond_empty_for_futures(app, client):
+    """A futures trade lacking order_lot/order_cond surfaces empty strings."""
+    trade = MagicMock()
+    trade.status = MagicMock()
+    trade.status.id = "trade-l2"
+    trade.status.status = "Submitted"
+    trade.status.deals = []
+    trade.status.deal_quantity = 0
+    trade.contract = MagicMock()
+    trade.contract.code = "TXFR1"
+    # Futures orders lack order_lot / order_cond / custom_field attributes.
+    trade.order = MagicMock(spec=[])
+    trade.order.action = "Buy"
+    trade.order.price = 20000.0
+    trade.order.quantity = 1
+    trade.order.order_type = "ROD"
+    trade.order.price_type = "LMT"
+
+    _wire_list_trades(app, trade)
+
+    resp = client.get("/api/orders/trades")
+
+    assert resp.status_code == 200
+    row = resp.json()[0]
+    assert row["order_lot"] == ""
+    assert row["order_cond"] == ""

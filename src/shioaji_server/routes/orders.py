@@ -13,6 +13,23 @@ from shioaji_server.models import (
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
 
+def _enum_value(obj, attr: str) -> str:
+    """Return the string value of a possibly-enum SDK order attribute.
+
+    Definition: Normalize a Shioaji order attribute that may be a
+        ``constant`` StrEnum (with a ``.value``), a bare string, or absent
+        into a plain string for the wire response.
+    Domain:     ``attr`` may be missing on the order (e.g. futures orders
+        lack ``order_lot``/``order_cond``) -> returns "".
+    Returns:    The enum's ``.value`` if present, else the string form of the
+        attribute, else "" when the attribute is missing.
+    """
+    raw = getattr(obj, attr, None)
+    if raw is None:
+        return ""
+    return str(getattr(raw, "value", raw))
+
+
 def _share_factor(trade) -> int:
     """Return the multiplier converting this trade's SDK quantity unit to shares.
 
@@ -201,6 +218,14 @@ async def update_order(req: UpdateOrderRequest, request: Request) -> dict:
     trade = await sj_client.run_sync(_find_trade_sync, api, req.trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail=f"Trade {req.trade_id} not found")
+    # Shioaji forbids price changes on intraday odd-lot orders (ORDERS.md):
+    # they can only be reduced in quantity. Reject the price modification here
+    # so the client gets a clear 422 instead of an opaque SDK error.
+    if req.price is not None and _enum_value(trade.order, "order_lot") == "IntradayOdd":
+        raise HTTPException(
+            status_code=422,
+            detail="IntradayOdd orders cannot change price, only reduce quantity",
+        )
     kwargs = {}
     if req.price is not None:
         kwargs["price"] = req.price
@@ -263,6 +288,8 @@ async def list_trades(request: Request) -> list[dict]:
                 "custom_field": getattr(t.order, "custom_field", ""),
                 "filled_qty": filled_qty,
                 "avg_fill_price": avg_fill_price,
+                "order_lot": _enum_value(t.order, "order_lot"),
+                "order_cond": _enum_value(t.order, "order_cond"),
             }
         )
     return result
