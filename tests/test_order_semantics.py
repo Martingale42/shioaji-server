@@ -183,6 +183,33 @@ def test_place_order_intraday_odd_happy_path(app, client):
     assert call_kwargs["quantity"] == 37
 
 
+@pytest.mark.parametrize("quantity", [1, 999])
+def test_place_order_intraday_odd_boundary_quantities_accepted(app, client, quantity):
+    """The IntradayOdd quantity band is inclusive: 1 and 999 shares are both accepted.
+
+    The 422 matrix pins the rejected sides (0 and 1000); this pins the accepted
+    boundaries so a one-off edit to the comparison operator cannot silently widen
+    or narrow the band.
+    """
+    api = _wire_place(app)
+
+    resp = client.post(
+        "/api/orders/place",
+        json={
+            **_BASE_STOCK,
+            "order_lot": "IntradayOdd",
+            "price_type": "LMT",
+            "order_type": "ROD",
+            "order_cond": "Cash",
+            "quantity": quantity,
+        },
+    )
+
+    assert resp.status_code == 200
+    # Odd-lot orders are share-denominated in Shioaji (no shares->lots division).
+    assert api.Order.call_args.kwargs["quantity"] == quantity
+
+
 @pytest.mark.parametrize(
     ("octype", "expected_member"),
     [
