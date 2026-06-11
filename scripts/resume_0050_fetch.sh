@@ -42,6 +42,7 @@ cd "$REPO" || { echo "repo not found: $REPO" >&2; exit 1; }
   echo
   echo "--- fetch-bars (idempotent resume) ---"
   uv run shioaji-data fetch-bars \
+      --gateway-url "$GATEWAY" \
       --codes-file "$CODES" \
       --catalog "$CATALOG" \
       --start 2020-03-02 --concurrency 4

@@ -59,7 +59,7 @@ def main():
     _load_env()
 
     host = os.environ.get("SHIOAJI_SERVER_HOST", "0.0.0.0")
-    port = int(os.environ.get("SHIOAJI_SERVER_PORT", "8000"))
+    port = int(os.environ.get("SHIOAJI_SERVER_PORT", "8123"))
 
     log_level = os.environ.get("SHIOAJI_LOG_LEVEL", "info").lower()
     _configure_logging(log_level)

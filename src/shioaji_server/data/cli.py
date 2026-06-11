@@ -40,7 +40,7 @@ from .fetch import (
 from .inspect import inspect_catalog
 
 DEFAULT_CATALOG = "./catalog"
-DEFAULT_GATEWAY_URL = "http://localhost:8000"
+DEFAULT_GATEWAY_URL = "http://localhost:8123"
 DEFAULT_START = "2020-03-02"
 DEFAULT_CONCURRENCY = 4
 DEFAULT_MIN_REMAINING_MB = 50.0
