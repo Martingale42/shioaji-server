@@ -24,7 +24,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin:$PAT
 REPO=/home/cy/Code/MT5/shioaji-server
 CODES="$REPO/universe/0050_constituents.txt"
 CATALOG="$REPO/catalog"
-GATEWAY="${SHIOAJI_GATEWAY_URL:-http://localhost:8000}"
+GATEWAY="${SHIOAJI_GATEWAY_URL:-http://localhost:8123}"
 LOGDIR="$HOME/shioaji_0050_fetch_logs"
 
 mkdir -p "$LOGDIR"

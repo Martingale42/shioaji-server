@@ -21,7 +21,7 @@ build: ## Build Docker image
 up: _ensure-build _ensure-env _ensure-log ## Start server (simulation, detached)
 	docker run -d --name $(CONTAINER) \
 		--restart unless-stopped \
-		-p $(PORT):8000 \
+		-p $(PORT):$(PORT) \
 		-v $(ENV_FILE):/app/.env:ro \
 		-v $(CA_FILE):/app/Sinopac.pfx:ro \
 		-v $(LOG_FILE):/app/server.log \
@@ -34,7 +34,7 @@ up: _ensure-build _ensure-env _ensure-log ## Start server (simulation, detached)
 up-live: _ensure-build _ensure-env _ensure-log ## Start server (LIVE, detached)
 	docker run -d --name $(CONTAINER) \
 		--restart unless-stopped \
-		-p $(PORT):8000 \
+		-p $(PORT):$(PORT) \
 		-v $(ENV_FILE):/app/.env:ro \
 		-v $(CA_FILE):/app/Sinopac.pfx:ro \
 		-v $(LOG_FILE):/app/server.log \
