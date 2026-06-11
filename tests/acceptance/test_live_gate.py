@@ -32,10 +32,21 @@ market-hours node run; they are marked PENDING here, never silently passed.
 outside TWSE hours (09:00-13:30 Asia/Taipei). Every assertion that needs a
 *fill* (deal event, ``filled_qty > 0``, position convergence, partial-fill
 reconciliation) is skipped with a clear "pending market hours" reason rather
-than failing. The fill-INDEPENDENT assertions (placement -> SDK-lot conversion
--> ``list_trades.quantity == 1000`` shares; async venue reject -> ``Failed``)
-run and PASS now, even market-closed (Batch 0.1 reproduced the async-reject
-path off-tick while closed).
+than failing. The fill-INDEPENDENT assertions (non-1000-multiple common-lot
+order -> 422; placement -> SDK-lot conversion -> ``list_trades.quantity ==
+1000`` shares + ``filled_qty``/``avg_fill_price`` keys present; async venue
+reject -> ``Failed``) run and PASS now, even market-closed (Batch 0.1
+reproduced the async-reject path off-tick while closed).
+
+**Version discrimination.** The Gate-1 placement ``quantity == 1000`` check is a
+necessary but NOT version-discriminating condition: it passes identically on the
+stale lots-gateway and the new shares-gateway. Gate 1 is made trustworthy by two
+assertions that are true ONLY under the new code -- the 422 rejection of a
+non-1000-multiple common-lot order, and the presence of the
+``filled_qty``/``avg_fill_price`` keys in ``list_trades`` rows. Against a stale
+gateway these FAIL with a crystal-clear "running STALE code
+(pre-fix/sinopac-production-gate) ... redeploy the branch" message; Gate 1 never
+silently false-passes on stale code.
 
 Safety
 ------
@@ -74,13 +85,33 @@ pytestmark = [
 RESTING_PRICE = 2050.0
 OFF_TICK_PRICE = 99999.0  # off the tick grid -> async venue rejection (Batch 0.1)
 
+# A common-lot quantity that is NOT a 1000-share multiple. Under the new
+# shares-semantics gateway this is rejected *before* reaching the SDK with a
+# 422 (orders.py:89-93); the stale lots-gateway forwards it verbatim and
+# accepts it. This makes it a fill-independent, version-discriminating probe.
+NON_LOT_MULTIPLE_QTY = 999
+
 # Order-status string tails (gateway emits "OrderStatus.<Tail>").
 REJECTED_TAILS = frozenset({"Failed", "Inactive"})
 RESTING_TAILS = frozenset({"PendingSubmit", "PreSubmitted", "Submitted"})
 
+# Keys the NEW gateway (post-fix/sinopac-production-gate) adds to every
+# ``list_trades`` row (models.py TradeInfo + orders.py:213-214). The stale
+# lots-gateway omits them entirely, so their presence is new-code-only.
+NEW_TRADE_KEYS = ("filled_qty", "avg_fill_price")
+
 PENDING_MARKET = (
     "pending market-hours run (09:00-13:30 Asia/Taipei); sim does not fill while closed"
 )
+
+
+def _stale_gateway_message(reason: str) -> str:
+    """Build the crystal-clear failure message for a detected stale gateway."""
+    return (
+        f"Gateway at {GATEWAY_URL} is running STALE code "
+        f"(pre-fix/sinopac-production-gate): {reason}. Redeploy the branch "
+        f"before running acceptance gates."
+    )
 
 
 def _status_tail(status: str) -> str:
@@ -194,6 +225,51 @@ def _poll_status_tail(
 # ===========================================================================
 
 
+def test_gate1_rejects_non_1000_multiple_common_lot(
+    http: httpx.Client,
+    require_simulation: None,
+    order_janitor: list[str],
+) -> None:
+    """The gateway rejects a non-1000-multiple common-lot order with HTTP 422.
+
+    FILL-INDEPENDENT and VERSION-DISCRIMINATING (this is the gate's teeth). The
+    new shares-semantics gateway validates that a common-lot ``quantity`` is a
+    multiple of 1000 shares and returns 422 *before* the order reaches the SDK
+    (orders.py:89-93). The stale lots-gateway interprets ``quantity`` as lots,
+    forwards 999 lots verbatim, and accepts it (200). Asserting the 422 therefore
+    proves the gateway is running the NEW shares-semantics code -- something the
+    old ``quantity == 1000`` round-trip check (which passes identically on both
+    gateways) could never prove.
+
+    On a detected stale gateway this FAILS with a crystal-clear message naming
+    the stale-code cause; it never silently passes. Any order the stale gateway
+    accepts is captured for teardown so the suite still leaves zero resting
+    orders.
+    """
+    resp = _place(http, price=RESTING_PRICE, quantity=NON_LOT_MULTIPLE_QTY)
+
+    # Stale gateway accepts the 999 (forwards as lots): capture for cleanup, fail.
+    if resp.status_code == 200:
+        order_janitor.append(resp.json()["trade_id"])
+        pytest.fail(
+            _stale_gateway_message(
+                f"a common-lot order with quantity={NON_LOT_MULTIPLE_QTY} was "
+                f"ACCEPTED (200) instead of rejected with 422 'must be a multiple "
+                f"of 1000 shares' -- the gateway treats quantity as lots"
+            )
+        )
+
+    assert resp.status_code == 422, _stale_gateway_message(
+        f"a common-lot order with quantity={NON_LOT_MULTIPLE_QTY} returned "
+        f"{resp.status_code} ({resp.text}) instead of the new-code 422 "
+        f"'must be a multiple of 1000 shares' rejection"
+    )
+    detail = resp.json().get("detail", "")
+    assert "multiple of 1000 shares" in detail, (
+        f"422 detail did not match the new-code shares-validation message: {detail!r}"
+    )
+
+
 def test_gate1_quantity_round_trip_placement(
     http: httpx.Client,
     require_simulation: None,
@@ -205,6 +281,16 @@ def test_gate1_quantity_round_trip_placement(
     converts to exactly 1 SDK lot at the boundary, and ``list_trades`` reports
     ``quantity == 1000`` shares back. This is the observable half of the
     lots-vs-shares contract (D1) without needing a deal.
+
+    The ``quantity == 1000`` value is a NECESSARY but NOT version-discriminating
+    condition -- it passes identically on the stale lots-gateway (1000 lots
+    forwarded verbatim) and the new shares-gateway (1000 shares -> 1 lot ->
+    1000 shares back). The new-code teeth are: (a) the 422 reject probe in
+    ``test_gate1_rejects_non_1000_multiple_common_lot``, and (b) the presence of
+    the ``filled_qty``/``avg_fill_price`` keys asserted here, both of which are
+    true ONLY under the new gateway. If those keys are absent we FAIL with a
+    crystal-clear stale-code message rather than passing on the necessary-but-
+    insufficient quantity check alone.
 
     The deal-event-1000-shares + ``filled_qty > 0`` + NT-position-+1000 half is
     FILL-DEPENDENT and is asserted by ``test_gate1_quantity_round_trip_fill``.
@@ -223,6 +309,15 @@ def test_gate1_quantity_round_trip_placement(
     assert row is not None, f"placed trade {trade_id} not found in list_trades"
     assert row["quantity"] == 1000, (
         f"expected 1000 shares round-tripped, was {row['quantity']}"
+    )
+
+    # New-code-only: every list_trades row carries the deal-aggregated fill keys
+    # (orders.py:213-214 / models.py TradeInfo). The stale gateway omits them, so
+    # their ABSENCE is an unambiguous stale-code signal -- fail loudly, never pass.
+    missing = [key for key in NEW_TRADE_KEYS if key not in row]
+    assert not missing, _stale_gateway_message(
+        f"list_trades row is missing the new fill key(s) {missing} "
+        f"(row keys: {sorted(row)})"
     )
 
 
