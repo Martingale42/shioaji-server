@@ -43,11 +43,18 @@ log "data tester (${RUN_SECS}s)…"
 log "data tester exit=$?"
 
 # --- Exec tester (PLACES ORDERS) — HARD simulation guard ---
+# Order-semantics scenarios driven by SINOPAC_EXEC_SCENARIO (see the exec tester).
+# Override the set with SINOPAC_EXEC_SCENARIOS; each scenario gets its own bounded
+# timeout and a distinct log-line prefix.
+SCENARIOS="${SINOPAC_EXEC_SCENARIOS:-common intraday_odd mkp futures_octype}"
 if printf '%s' "$AUTH" | grep -q '"simulation":true'; then
-  log "simulation CONFIRMED → exec tester (${RUN_SECS}s, REAL sim placement)…"
-  ( cd "$NT" && timeout --kill-after=20 "$RUN_SECS" \
-      uv run python examples/live/sinopac/sinopac_exec_tester.py ) >>"$LOG" 2>&1
-  log "exec tester exit=$?"
+  log "simulation CONFIRMED → exec tester scenarios=[$SCENARIOS] (${RUN_SECS}s each, REAL sim placement)…"
+  for s in $SCENARIOS; do
+    log "[scenario:$s] exec tester (${RUN_SECS}s)…"
+    ( cd "$NT" && SINOPAC_EXEC_SCENARIO="$s" timeout --kill-after=20 "$RUN_SECS" \
+        uv run python examples/live/sinopac/sinopac_exec_tester.py ) >>"$LOG" 2>&1
+    log "[scenario:$s] exec tester exit=$?"
+  done
 else
   log "!!! gateway is NOT simulation (auth=$AUTH) → SKIPPING exec tester, NO orders placed !!!"
 fi
