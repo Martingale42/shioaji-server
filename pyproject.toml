@@ -40,3 +40,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 # Repo root on sys.path so tests can import the `scripts` package (not installed).
 pythonpath = ["."]
+markers = [
+    "gateway: live-gate acceptance tests against a running simulation gateway (require SINOPAC_GATEWAY_URL)",
+]
