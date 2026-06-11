@@ -181,6 +181,17 @@ class OrderLot(StrEnum):
     FIXING = "Fixing"
 
 
+class OCType(StrEnum):
+    # Values are the verbatim Shioaji SDK FuturesOCType member names, because
+    # routes/orders.py resolves them via getattr(sj.constant.FuturesOCType, value).
+    # SDK introspection (2026-06-11) confirmed the members are Auto/New/Cover/
+    # DayTrade -- the open-position member is "New", not "NewPosition".
+    AUTO = "Auto"
+    NEW = "New"
+    COVER = "Cover"
+    DAY_TRADE = "DayTrade"
+
+
 class PlaceOrderRequest(BaseModel):
     """Place a new order. Market price orders (MKT/MKP) must use IOC or FOK, not ROD."""
 
@@ -192,6 +203,8 @@ class PlaceOrderRequest(BaseModel):
     order_type: OrderType = Field(default=OrderType.ROD, description="ROD=day, IOC=immediate-or-cancel, FOK=fill-or-kill")
     order_cond: OrderCond = Field(default=OrderCond.CASH, description="Cash/MarginTrading/ShortSelling (stocks only)")
     order_lot: OrderLot = Field(default=OrderLot.COMMON, description="Common/Odd/IntradayOdd/Fixing (stocks only)")
+    octype: OCType = Field(default=OCType.AUTO, description="Futures/options open-close type (Auto/New/Cover/DayTrade); ignored for stocks")
+    daytrade_short: bool = Field(default=False, description="Stock day-trade short flag (現股當沖); requires order_cond=Cash")
     market: str = Field(default="stock", description="'stock', 'futures', or 'options'")
     custom_field: str = Field(default="", description="Free-form tag (max 6 ASCII chars, truncated). Used by the adapter to round-trip a client_order_id token for timed-out order adoption.")
 
@@ -224,6 +237,8 @@ class TradeInfo(BaseModel):
     custom_field: str = Field(default="", description="Adapter token (max 6 ASCII) for order adoption")
     filled_qty: int = Field(default=0, description="Filled quantity (shares for stocks, contracts for futures/options)")
     avg_fill_price: float = Field(default=0.0, description="Volume-weighted average fill price, 0.0 if no fills")
+    order_lot: str = Field(default="", description="Stock order lot (Common/Odd/IntradayOdd/Fixing); empty for futures/options trades")
+    order_cond: str = Field(default="", description="Stock order condition (Cash/MarginTrading/ShortSelling); empty for futures/options trades")
 
 
 # --- Account ---
