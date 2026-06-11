@@ -29,6 +29,54 @@ def _share_factor(trade) -> int:
     return 1000 if is_common else 1
 
 
+def _validate_order_semantics(req: PlaceOrderRequest) -> None:
+    """Reject orders that violate Shioaji's Taiwan venue rules with HTTP 422.
+
+    The gateway is the authoritative validator: even though the NT adapter
+    validates locally, every rule that the venue enforces is re-checked here so
+    that any client (not just NT) is held to the same contract. Rules mirror
+    Shioaji ORDERS.md: market/range-market orders demand an immediate time in
+    force, and intraday odd-lot orders are limited to cash-funded LMT+ROD trades
+    of 1-999 shares. Day-trade short selling is only legal on a cash condition.
+
+    Parameters
+    ----------
+    req : PlaceOrderRequest
+        The inbound order request to validate.
+
+    Raises
+    ------
+    fastapi.HTTPException
+        With status 422 and a message naming the violated rule.
+    """
+    if req.price_type in ("MKT", "MKP") and req.order_type not in ("IOC", "FOK"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{req.price_type} orders require IOC or FOK, was {req.order_type}",
+        )
+    if req.market == "stock" and req.order_lot == "IntradayOdd":
+        if req.price_type != "LMT" or req.order_type != "ROD":
+            raise HTTPException(
+                status_code=422,
+                detail="IntradayOdd orders must be LMT + ROD",
+            )
+        if not 1 <= req.quantity <= 999:
+            raise HTTPException(
+                status_code=422,
+                detail=f"IntradayOdd quantity must be 1-999 shares, was {req.quantity}",
+            )
+        if req.order_cond != "Cash":
+            raise HTTPException(
+                status_code=422,
+                detail="IntradayOdd orders must be Cash",
+            )
+    if req.daytrade_short and req.order_cond != "Cash":
+        raise HTTPException(
+            status_code=422,
+            detail="daytrade_short requires order_cond=Cash",
+        )
+
+
 def _resolve_contract(api, code: str, market: str):
     if market == "stock":
         return api.Contracts.Stocks[code]
@@ -74,6 +122,8 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
     sj_client.require_connected()
     api = sj_client.api
 
+    _validate_order_semantics(req)
+
     contract = _resolve_contract(api, req.code, req.market)
 
     action = sj.constant.Action.Buy if req.action == "Buy" else sj.constant.Action.Sell
@@ -102,6 +152,7 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
             order_type=getattr(sj.constant.OrderType, req.order_type),
             order_cond=order_cond,
             order_lot=order_lot,
+            daytrade_short=req.daytrade_short,
             account=api.stock_account,
             custom_field=req.custom_field[:6],
         )
@@ -114,7 +165,7 @@ async def place_order(req: PlaceOrderRequest, request: Request) -> dict:
             action=action,
             price_type=price_type,
             order_type=getattr(sj.constant.OrderType, req.order_type),
-            octype=sj.constant.FuturesOCType.Auto,
+            octype=getattr(sj.constant.FuturesOCType, req.octype),
             account=api.futopt_account,
             custom_field=req.custom_field[:6],
         )
