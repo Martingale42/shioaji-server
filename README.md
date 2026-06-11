@@ -83,7 +83,7 @@ INFO:shioaji_server.app:[shioaji-server] Auto-login starting (simulation)...
 INFO:shioaji_server.app:[shioaji-server] Login successful! 2 account(s):
 INFO:shioaji_server.app:  - Account: 00XXXXXX
 INFO:shioaji_server.app:  - Account: XXXXXXX
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Uvicorn running on http://0.0.0.0:8123 (Press CTRL+C to quit)
 ```
 
 如果缺少 `.env` 或必要的環境變數，server 仍會啟動但不會自動登入，並顯示設定提示。此時可以手動登入（見 [docs/REFERENCE.md](docs/REFERENCE.md#認證)）。
@@ -92,8 +92,8 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 
 Server 啟動後，可在瀏覽器開啟自動產生的互動式 API 文件：
 
-- **Swagger UI**：http://localhost:8000/docs
-- **ReDoc**：http://localhost:8000/redoc
+- **Swagger UI**：http://localhost:8123/docs
+- **ReDoc**：http://localhost:8123/redoc
 
 所有端點、參數說明、request/response schema 都在裡面，可以直接在頁面上測試 API。
 
@@ -104,13 +104,31 @@ Server 啟動並登入後，NT adapter 即可連接：
 ```python
 from nautilus_trader.adapters.sinopac.config import SinopacDataClientConfig, SinopacExecClientConfig
 
-# 預設連接 localhost:8000（可用 gateway_host / gateway_port / gateway_ws_path 覆寫）
-data_config = SinopacDataClientConfig()
-exec_config = SinopacExecClientConfig()
+# adapter 的 gateway_port 預設仍為 8000；gateway 現在監聽 8123，
+# 因此需以 gateway_port=8123 覆寫，與 .env 的 SHIOAJI_SERVER_PORT 對齊。
+# （gateway_host / gateway_port / gateway_ws_path 皆可覆寫）
+data_config = SinopacDataClientConfig(gateway_port=8123)
+exec_config = SinopacExecClientConfig(gateway_port=8123)
 ```
 
 adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapters/sinopac/`
 （`config.py` / `factories.py`）。
+
+---
+
+## 下單與數量單位
+
+> 完整 curl 範例（含整股／盤中零股／期貨、改單、刪單）見 [docs/REFERENCE.md](docs/REFERENCE.md#下單)。
+
+閘道器在 Shioaji SDK 邊界統一處理「股數 ↔ 張數」換算，呼叫端送出的股票 `quantity` **一律以股數計**：
+
+- **整股**（`order_lot=Common`，預設）：`quantity` 必須為 **1000 的倍數**（1 張 = 1000 股）；閘道器 ÷1000 換成張數送入 SDK。非 1000 倍數會直接回 **HTTP 422**（`Common-lot quantity must be a multiple of 1000 shares`）。
+- **零股**（`order_lot=IntradayOdd` 盤中零股 09:00–13:30，或 `Odd` 盤後零股 13:40–14:30）：`quantity` 為股數 1–999，直接送入 SDK（不 ÷1000）。
+- **期貨／選擇權**：`quantity` 為口數，不換算。
+
+**委託拒絕多為非同步**：`POST /api/orders/place` 成功送出時回 `200` 且 `status` 為 `OrderStatus.PendingSubmit`，真正的拒絕（`OrderStatus.Failed`、`op_code != "00"`）稍後才透過 WebSocket `order_update` 浮現（由 NT exec client 處理）；只有 SDK 同步即回報失敗狀態時，閘道器才在當下回 **HTTP 422** 作為第二道防線。
+
+**`GET /api/orders/trades` 回報成交**：`TradeInfo` 的 `quantity` 已換回股數，並新增 `filled_qty`（已成交股數，`status.deals` 加總）與 `avg_fill_price`（成交量加權均價，未成交為 `0.0`）。WS 廣播的成交數量同樣已正規化為股數。
 
 ---
 
@@ -158,7 +176,7 @@ adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapter
 | 變數 | 說明 | 預設值 |
 |------|------|--------|
 | `SHIOAJI_SERVER_HOST` | Server 監聽地址 | `0.0.0.0` |
-| `SHIOAJI_SERVER_PORT` | Server 監聽埠（Makefile 會自動讀取） | `8000` |
+| `SHIOAJI_SERVER_PORT` | Server 監聽埠（Makefile 會自動讀取並映射 `-p PORT:PORT`）。本專案 `.env` 設為 `8123`（避開 8000 與本機其他服務如 LLM server 衝突）；未設定時程式 fallback 為 `8000` | `8123`（`.env`），`8000`（未設定時的 fallback） |
 | `SHIOAJI_SIMULATION` | 是否為模擬模式（被 `--live` 覆蓋） | `true` |
 | `SHIOAJI_LOG_LEVEL` | Log 等級（debug/info/warning/error） | `info` |
 | `SHIOAJI_LOG_FILE` | 輪替檔案 log 路徑（`RotatingFileHandler`，10 MB × 3 份；Docker 會 mount 到 host） | `server.log` |
@@ -198,7 +216,7 @@ uv run shioaji-data --help
 | 旗標 | 說明 | 預設 |
 |------|------|------|
 | `--catalog` | `ParquetDataCatalog` 目錄路徑 | `./catalog` |
-| `--gateway-url` | gateway base URL | `http://localhost:8000` |
+| `--gateway-url` | gateway base URL（CLI 預設仍為 `8000`；gateway 監聽 `8123` 時需明確指定 `--gateway-url http://localhost:8123`） | `http://localhost:8000` |
 
 ### 子指令
 
@@ -285,7 +303,7 @@ https://sinotrade.github.io/tutor/prepare/terms
 Server 已登入。先 logout 再重新登入：
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/logout
+curl -X POST http://localhost:8123/api/auth/logout
 ```
 
 ### `Not connected`（503）
@@ -303,7 +321,7 @@ Server 尚未登入。檢查 `.env` 設定或手動呼叫 `/api/auth/login`。
 ### Port 被占用
 
 ```bash
-lsof -i :8000
+lsof -i :8123
 kill <PID>
 ```
 

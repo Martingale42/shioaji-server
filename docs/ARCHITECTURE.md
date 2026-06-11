@@ -109,7 +109,7 @@ class ShioajiGatewaySession:                # 選列重點欄位/方法（實際
 - **訂閱追蹤**：`subscriptions: dict[(code, quote_type), set[WebSocket]]`
 - **引用計數**：第一個 client 訂閱時才向 SDK subscribe，最後一個取消時才 unsubscribe
 - **跨 thread 分發**：SDK callback thread → `asyncio.run_coroutine_threadsafe` → async broadcast
-- **委託推送**：`broadcast_order_update` 推送到所有已連線 client
+- **委託推送**：`broadcast_order_update` 推送到所有已連線 client。成交事件的數量在 `session.py` 的 callback（`_normalize_deal_quantity_to_shares`）已先正規化為股數（整股 ×1000，零股/期貨/選擇權維持原值）後才進入 `broadcast_order_update`，因此 WS 廣播的數量全程皆以股數計
 
 ### `models.py` — Pydantic Models
 
@@ -118,7 +118,7 @@ class ShioajiGatewaySession:                # 選列重點欄位/方法（實際
 - **Auth / System**：`LoginRequest`, `LoginResponse`, `StatusResponse`, `HealthResponse`
 - **Contracts**：`StockContract`, `FuturesContract`, `OptionsContract`
 - **Market Data**：`SnapshotData`, `TicksResponse`, `KBarsResponse`
-- **Orders**：`PlaceOrderRequest`, `UpdateOrderRequest`, `CancelOrderRequest`, `TradeInfo`，加上下單列舉 `Action` / `PriceType` / `OrderType` / `OrderCond` / `OrderLot`（定義可接受的 wire 值）
+- **Orders**：`PlaceOrderRequest`, `UpdateOrderRequest`, `CancelOrderRequest`, `TradeInfo`，加上下單列舉 `Action` / `PriceType` / `OrderType` / `OrderCond` / `OrderLot`（定義可接受的 wire 值）。`PlaceOrderRequest.quantity` 為**股數**（股票）／口數（期貨/選擇權），`order_lot` 預設 `Common`；`TradeInfo` 含 `quantity`（已換回股數）、`filled_qty`、`avg_fill_price`（見〈數量單位約定〉設計決策）
 - **Account**：`Position`, `AccountBalance`, `MarginInfo`, `ProfitLoss`, `UsageResponse`（每日流量配額）
 
 ### `errors.py` — 錯誤處理
@@ -231,13 +231,16 @@ NT ExecClient                Shioaji Server              Sinopac
      │                            │  api.place_order()     │
      │                            │ ─────────────────────► │
      │                            │ ◄───────────────────── │
-     │  {"trade_id", "status"}    │                        │
-     │ ◄───────────────────────── │                        │
+     │  200 {"trade_id","status"} │                        │
+     │ ◄───────────────────────── │  (status=PendingSubmit)│
      │                            │                        │
      │                            │  order callback        │
      │  WS: order_update          │ ◄───────────────────── │
-     │ ◄─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │                        │
+     │ ◄─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │  (Failed/op_code≠"00"  │
+     │                            │   → 拒絕在此非同步浮現)│
 ```
+
+> **委託拒絕為非同步主路徑**：`POST /api/orders/place` 通常回 `200` 且 `status=OrderStatus.PendingSubmit`，交易所拒絕（`OrderStatus.Failed`、`op_code != "00"`）稍後才透過 WS `order_update` 浮現（由 NT exec client 處理）。第二道防線：若 SDK **同步**即回報 `Failed`/`Inactive`，`orders.py` 在當下回 **HTTP 422**（`Order rejected by venue: ...`）。整股 `quantity` 非 1000 倍數則更早、在送進 SDK 前就回 422。
 
 ### 即時行情流程
 
@@ -277,6 +280,15 @@ Gateway 模式將 SDK 隔離在獨立 process，透過 HTTP/WS 提供語言無�
 - 自動產生 OpenAPI docs（`/docs`）方便開發除錯
 - Pydantic model 提供 request/response 驗證
 - WebSocket 內建支援
+
+### 數量單位約定（gateway 擁有 shares↔lots 換算）
+
+整個 wire 介面（REST request/response 與 WS 廣播）的股票數量**一律以股數計**，閘道器在 Shioaji SDK 邊界集中處理「股數 ↔ 張數」換算，讓所有 venue-unit 知識收斂在 gateway，呼叫端（NT adapter）不需要知道整股／零股的內部換算：
+
+- **送單方向（`routes/orders.py`）**：`PlaceOrderRequest.quantity` 是股數。整股（`order_lot=Common`）在送進 SDK 前 ÷1000 換成張數；非 1000 倍數直接回 **HTTP 422**（`Common-lot quantity must be a multiple of 1000 shares`）。零股（`IntradayOdd`/`Odd`）為股數 1–999，直接送入（不換算）。期貨/選擇權為口數，不換算。`_share_factor()` 以 `trade.order.order_lot == "Common"` 判定 factor（整股 1000、其餘 1）。
+- **回報方向（`list_trades`）**：`TradeInfo.quantity` 以同一 factor 將 SDK 的張數 ×1000 還原為股數；`filled_qty`（`status.deals` 各筆成交量加總 × factor）與 `avg_fill_price`（成交量加權均價，未成交為 `0.0`）同樣股數化。
+- **成交事件廣播（`session.py`）**：order/deal callback 在 `broadcast_order_update` 前先經 `_normalize_deal_quantity_to_shares`，整股成交事件 `quantity` ×1000 換成股數（依 deal payload 的 `order_lot` 判定），零股/期貨/選擇權維持原值，使 WS 廣播數量全程股數化。
+- **委託拒絕語意**：主路徑為**非同步**——`/place` 回 `200` + `OrderStatus.PendingSubmit`，拒絕（`OrderStatus.Failed`、`op_code != "00"`）稍後經 WS `order_update` 由 NT exec client 處理；SDK 同步回報 `Failed`/`Inactive` 時則在 `/place` 當下回 **HTTP 422** 作為第二道防線。
 
 ### 單一 SDK 實例
 
