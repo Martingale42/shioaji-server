@@ -44,8 +44,8 @@ log "data tester exit=$?"
 
 # --- Exec tester (PLACES ORDERS) — HARD simulation guard ---
 if printf '%s' "$AUTH" | grep -q '"simulation":true'; then
-  log "simulation CONFIRMED → exec tester (${RUN_SECS}s, REAL sim placement, dry_run=false)…"
-  ( cd "$NT" && SINOPAC_EXEC_DRY_RUN=false timeout --kill-after=20 "$RUN_SECS" \
+  log "simulation CONFIRMED → exec tester (${RUN_SECS}s, REAL sim placement)…"
+  ( cd "$NT" && timeout --kill-after=20 "$RUN_SECS" \
       uv run python examples/live/sinopac/sinopac_exec_tester.py ) >>"$LOG" 2>&1
   log "exec tester exit=$?"
 else
