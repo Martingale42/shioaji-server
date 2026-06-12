@@ -5,6 +5,7 @@ dist/
 build/
 .venv/
 *.lock
+!uv.lock
 .env
 *.log
 
