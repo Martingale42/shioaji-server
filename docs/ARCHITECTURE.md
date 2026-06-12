@@ -13,11 +13,11 @@ Shioaji Server 是一個 **協定轉換閘道器**，將永豐金 Shioaji Python
 ### Docker（推薦）
 
 ```
-Host                              Container (/app)
-─────────────────                 ─────────────────
-.env           ──mount(ro)──►    .env
-Sinopac.pfx    ──mount(ro)──►    Sinopac.pfx
-server.log     ──mount(rw)──►    server.log
+Host (~/.shioaji-server/)              Container (/app)
+─────────────────────────              ─────────────────
+.env               ──mount(ro)──►     .env
+Sinopac.pfx        ──mount(ro)──►     Sinopac.pfx
+logs/server.log    ──mount(rw)──►     server.log
 
 Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
 覆蓋 .env 中的 host 路徑
@@ -25,9 +25,9 @@ Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
 
 `Makefile` 負責編排 `docker build` / `docker run`，包含：
 - 自動 build image（首次 `make up`）
-- 從 `.env` 讀取 `SHIOAJI_SERVER_PORT` 設定 port mapping
+- 從 `~/.shioaji-server/.env` 讀取 `SHIOAJI_SERVER_PORT` 設定 port mapping
 - 用 `-e CA_PATH` 覆蓋 container 內的憑證路徑
-- mount `server.log` 讓 host 可直接 `tail -f`
+- 把 host 的 `~/.shioaji-server/logs/server.log` mount 到 container 的 `server.log`，讓 host 可直接 `tail -f`
 
 ### 本地執行
 
@@ -39,11 +39,11 @@ Makefile 自動設定 -e CA_PATH=/app/Sinopac.pfx
 
 ### `__main__.py` — 入口
 
-- 載入 `.env` 環境變數（搜尋 cwd → parent dir，或 `SHIOAJI_ENV_FILE`）
+- 載入 `.env` 環境變數（搜尋 cwd → parent dir → `~/.shioaji-server/.env`，或 `SHIOAJI_ENV_FILE`）
 - 解析 CLI 參數（`--live`）
 - 設定 logging：`logging.basicConfig` + uvicorn `log_level`，並加一個 `RotatingFileHandler`
-  寫入 `SHIOAJI_LOG_FILE`（預設 `server.log`，10 MB × 3 份）——這就是 Docker 把
-  `server.log` bind-mount 出來、host 可直接 `tail -f` 的原因
+  寫入 `SHIOAJI_LOG_FILE`（container 內預設仍為相對路徑 `server.log`，10 MB × 3 份）——這就是 Docker 把
+  container 的 `server.log` bind-mount 到 host 的 `~/.shioaji-server/logs/server.log`、host 可直接 `tail -f` 的原因
 - 啟動 uvicorn
 
 ### `app.py` — FastAPI 應用
@@ -302,18 +302,18 @@ Gateway 模式將 SDK 隔離在獨立 process，透過 HTTP/WS 提供語言無�
 
 ## 檔案結構
 
+執行期檔案（`.env` / `Sinopac.pfx` / `server.log`）已搬離 repo，集中於 host 端
+`~/.shioaji-server/`（見下方），repo 內僅保留 `.env.example` 範本。
+
 ```
 shioaji-server/
 ├── .dockerignore           # Docker build 排除清單
-├── .env                    # 環境變數（gitignored）
-├── .env.example            # 環境變數範本
+├── .env.example            # 環境變數範本（複製到 ~/.shioaji-server/.env 後填值）
 ├── .gitignore
 ├── Dockerfile              # Docker image 定義
 ├── Makefile                # build/up/down/logs 等命令
 ├── pyproject.toml          # 專案設定、依賴、console scripts（shioaji-server / shioaji-data）
 ├── LICENSE                 # MIT
-├── server.log              # 執行日誌（gitignored，Docker mount）
-├── Sinopac.pfx             # CA 憑證（gitignored，Docker mount）
 ├── catalog/                # ParquetDataCatalog 輸出（gitignored，shioaji-data 寫入）
 ├── README.md               # 快速開始指南
 ├── docs/
@@ -351,3 +351,18 @@ shioaji-server/
             ├── inspect.py  # catalog 體檢/bar 品質報告
             └── instruments.py # NT instrument 定義載入（SinopacInstrumentProvider）
 ```
+
+執行期檔案（host 端，與 repo 分離）：
+
+```
+~/.shioaji-server/
+├── .env                       # 環境變數（憑證）
+├── Sinopac.pfx                # CA 憑證
+└── logs/
+    ├── server.log             # gateway 應用日誌（Docker mount 出來；輪替 10 MB × 3 份）
+    ├── 0050_fetch/            # 0050 成分股下載排程日誌
+    └── market_open_verify/    # 開市驗證排程日誌
+```
+
+> `~/.shioaji-server/` 是本專案的執行期目錄；不要與 `~/.shioaji/`（上游 Shioaji 函式庫的
+> 合約快取 `contracts-*.pkl`）混淆，後者不歸本專案管理。

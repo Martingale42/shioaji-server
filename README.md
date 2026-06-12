@@ -19,10 +19,11 @@ Shioaji SDK 的 REST/WebSocket 閘道器，作為 NautilusTrader Sinopac adapter
 
 ```bash
 cd shioaji-server
-cp .env.example .env
+mkdir -p ~/.shioaji-server
+cp .env.example ~/.shioaji-server/.env
 ```
 
-編輯 `.env`，填入你的憑證：
+編輯 `~/.shioaji-server/.env`，填入你的憑證：
 
 ```env
 SHIOAJI_API_KEY=your_api_key
@@ -31,7 +32,7 @@ CA_PATH=/path/to/Sinopac.pfx
 CA_PERSON=your_ca_password
 ```
 
-並將 `Sinopac.pfx` 放在 `shioaji-server/` 目錄下。
+並將 `Sinopac.pfx` 放在 `~/.shioaji-server/Sinopac.pfx`。
 
 | 變數 | 說明 | 必填 |
 |------|------|------|
@@ -60,7 +61,7 @@ make up-live      # 正式環境
 ```bash
 make status       # 健康檢查
 make logs         # 查看 container stdout
-tail -f server.log  # 查看應用 log（mount 到 host）
+tail -f ~/.shioaji-server/logs/server.log  # 查看應用 log（mount 到 host）
 make down         # 停止
 make restart      # 重啟
 ```
@@ -179,8 +180,27 @@ adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapter
 | `SHIOAJI_SERVER_PORT` | Server 監聽埠（Makefile 會自動讀取並映射 `-p PORT:PORT`）。本專案 `.env` 設為 `8123`（避開 8000 與本機其他服務如 LLM server 衝突）；未設定時程式 fallback 為 `8000` | `8123`（`.env`），`8000`（未設定時的 fallback） |
 | `SHIOAJI_SIMULATION` | 是否為模擬模式（被 `--live` 覆蓋） | `true` |
 | `SHIOAJI_LOG_LEVEL` | Log 等級（debug/info/warning/error） | `info` |
-| `SHIOAJI_LOG_FILE` | 輪替檔案 log 路徑（`RotatingFileHandler`，10 MB × 3 份；Docker 會 mount 到 host） | `server.log` |
-| `SHIOAJI_ENV_FILE` | 指定 `.env` 檔案路徑 | 自動搜尋 cwd 與上一層目錄 |
+| `SHIOAJI_LOG_FILE` | 輪替檔案 log 路徑（`RotatingFileHandler`，10 MB × 3 份）。container 內預設仍為相對路徑 `server.log`；Docker 透過 mount 把 host 端落到 `~/.shioaji-server/logs/server.log` | `server.log`（container 內預設；host 端經 mount 為 `~/.shioaji-server/logs/server.log`） |
+| `SHIOAJI_ENV_FILE` | 指定 `.env` 檔案路徑 | 自動搜尋 cwd、上一層目錄與 `~/.shioaji-server/.env` |
+
+---
+
+## 執行期檔案（Runtime artifacts）
+
+所有執行期產物收斂在 `~/.shioaji-server/`，與 repo 目錄分離：
+
+```
+~/.shioaji-server/
+├── .env                       # 憑證與設定（由 .env.example 複製）
+├── Sinopac.pfx                # CA 憑證
+└── logs/
+    ├── server.log             # gateway 應用 log（Docker mount 出來；輪替 10 MB × 3 份）
+    ├── 0050_fetch/            # 0050 成分股下載排程 log
+    └── market_open_verify/    # 開市驗證排程 log
+```
+
+> **注意**：`~/.shioaji-server/` 是本專案的執行期目錄。請勿與 `~/.shioaji/` 混淆——後者是上游 Shioaji
+> 函式庫自己的合約快取（`contracts-*.pkl`），不歸本專案管理。
 
 ---
 
@@ -286,7 +306,7 @@ kbar 探針（近 14 日）。只有真的拿得到行情才放行，因為 `/ap
 ### 啟動時顯示 `Auto-login skipped`
 
 `.env` 未找到或缺少 `SHIOAJI_API_KEY` / `SHIOAJI_SECRET_KEY`。確認：
-- `.env` 在 `shioaji-server/` 目錄下（或用 `SHIOAJI_ENV_FILE` 指定路徑）
+- `.env` 在 `~/.shioaji-server/.env`（或 cwd / 上一層目錄，或用 `SHIOAJI_ENV_FILE` 指定路徑）
 - 變數名稱正確
 
 ### Docker 啟動時 `Auto-login failed: ReadFile Error No such file or directory`

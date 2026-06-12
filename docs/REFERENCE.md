@@ -20,7 +20,7 @@ make down         # 停止並移除 container
 make restart      # 重啟
 
 make logs         # 查看 container stdout
-tail -f server.log  # 查看應用 log（mount 到 host）
+tail -f ~/.shioaji-server/logs/server.log  # 查看應用 log（mount 到 host）
 make status       # 健康檢查
 make clean        # 移除 container 和 image
 make help         # 顯示所有命令
@@ -34,7 +34,7 @@ uv run shioaji-server          # 模擬環境（自動登入）
 uv run shioaji-server --live   # 正式環境
 
 # 背景執行
-uv run shioaji-server &> server.log &
+uv run shioaji-server &> ~/.shioaji-server/logs/server.log &
 
 # 停止
 kill $(lsof -ti :8123)
