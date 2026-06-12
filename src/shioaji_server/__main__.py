@@ -8,13 +8,17 @@ import uvicorn
 
 
 def _load_env() -> None:
-    """Load .env file, searching current dir then parent dirs up to 2 levels."""
+    """Load .env, searching: SHIOAJI_ENV_FILE → cwd → parent → ~/.shioaji-server/.env."""
     explicit = os.environ.get("SHIOAJI_ENV_FILE")
     if explicit:
         candidates = [Path(explicit)]
     else:
         cwd = Path.cwd()
-        candidates = [cwd / ".env", cwd.parent / ".env"]
+        candidates = [
+            cwd / ".env",
+            cwd.parent / ".env",
+            Path.home() / ".shioaji-server" / ".env",
+        ]
 
     for path in candidates:
         if path.is_file():
