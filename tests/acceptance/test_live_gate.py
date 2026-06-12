@@ -1,6 +1,6 @@
 """Live-gate acceptance tests against a running **simulation** Sinopac gateway.
 
-These are the five BACKLOGS "verification gates" (SINOPAC-01..05) that arbitrate
+These are the five backlog "verification gates" (SINOPAC-01..05) that arbitrate
 the production-hardening work end to end. They run against a *live* FastAPI
 shioaji-server in ``simulation=true`` mode, not against mocks.
 
