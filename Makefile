@@ -1,10 +1,10 @@
 IMAGE := shioaji-server
 CONTAINER := shioaji
 
-# Paths (relative to this Makefile)
-ENV_FILE := $(CURDIR)/.env
-CA_FILE := $(CURDIR)/Sinopac.pfx
-LOG_FILE := $(CURDIR)/server.log
+# Paths (consolidated under the ~/.shioaji-server/ artifact dir)
+ENV_FILE := $(HOME)/.shioaji-server/.env
+CA_FILE  := $(HOME)/.shioaji-server/Sinopac.pfx
+LOG_FILE := $(HOME)/.shioaji-server/logs/server.log
 
 # Read port from .env, fall back to 8000
 PORT := $(or $(shell grep -s '^SHIOAJI_SERVER_PORT=' $(ENV_FILE) | cut -d= -f2 | tr -d '"'"'"),8000)
@@ -84,11 +84,12 @@ _ensure-build:
 
 .PHONY: _ensure-env
 _ensure-env:
-	@test -f $(ENV_FILE) || (echo "Missing .env — copy from .env.example:" && echo "  cp .env.example .env" && exit 1)
-	@test -f $(CA_FILE) || (echo "Missing Sinopac.pfx — download from Sinopac API management page" && exit 1)
+	@test -f $(ENV_FILE) || (echo "Missing $(ENV_FILE) — copy from repo .env.example:" && echo "  mkdir -p $(dir $(ENV_FILE)) && cp .env.example $(ENV_FILE)" && exit 1)
+	@test -f $(CA_FILE) || (echo "Missing $(CA_FILE) — download Sinopac.pfx from the Sinopac API management page and place it there" && exit 1)
 
 .PHONY: _ensure-log
 _ensure-log:
+	@mkdir -p $(dir $(LOG_FILE))
 	@touch $(LOG_FILE)
 
 .PHONY: help

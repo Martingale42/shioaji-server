@@ -18,7 +18,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin:$PAT
 GATEWAY="${SINOPAC_GATEWAY_URL:-http://localhost:8123}"
 NT=/home/cy/Code/MT5/nautilus_trader
 RUN_SECS="${RUN_SECS:-120}"
-LOGDIR="$HOME/sinopac_market_open_logs"
+LOGDIR="$HOME/.shioaji-server/logs/market_open_verify"
 mkdir -p "$LOGDIR"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 LOG="$LOGDIR/verify_$STAMP.log"

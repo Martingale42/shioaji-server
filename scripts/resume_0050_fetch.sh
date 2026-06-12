@@ -25,7 +25,7 @@ REPO=/home/cy/Code/MT5/shioaji-server
 CODES="$REPO/universe/0050_constituents.txt"
 CATALOG="$REPO/catalog"
 GATEWAY="${SHIOAJI_GATEWAY_URL:-http://localhost:8123}"
-LOGDIR="$HOME/shioaji_0050_fetch_logs"
+LOGDIR="$HOME/.shioaji-server/logs/0050_fetch"
 
 mkdir -p "$LOGDIR"
 TS="$(date +%Y%m%d-%H%M%S)"
