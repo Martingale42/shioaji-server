@@ -87,7 +87,7 @@ INFO:shioaji_server.app:  - Account: XXXXXXX
 INFO:     Uvicorn running on http://0.0.0.0:8123 (Press CTRL+C to quit)
 ```
 
-如果缺少 `.env` 或必要的環境變數，server 仍會啟動但不會自動登入，並顯示設定提示。此時可以手動登入（見 [docs/REFERENCE.md](docs/REFERENCE.md#認證)）。
+如果缺少 `.env` 或必要的環境變數，server 仍會啟動但不會自動登入，並顯示設定提示。此時可以手動登入（見 [docs/reference/api.md](docs/reference/api.md#認證)）。
 
 ### 5. API 文件
 
@@ -119,7 +119,7 @@ adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapter
 
 ## 下單與數量單位
 
-> 完整 curl 範例（含整股／盤中零股／期貨、改單、刪單）見 [docs/REFERENCE.md](docs/REFERENCE.md#下單)。
+> 完整 curl 範例（含整股／盤中零股／期貨、改單、刪單）見 [docs/reference/api.md](docs/reference/api.md#下單)。
 
 閘道器在 Shioaji SDK 邊界統一處理「股數 ↔ 張數」換算，呼叫端送出的股票 `quantity` **一律以股數計**：
 
@@ -208,8 +208,12 @@ adapter（venue `SINOPAC`）的設定欄位與工廠見 `nautilus_trader/adapter
 
 | 文件 | 說明 |
 |------|------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系統架構、元件職責、資料流 |
-| [docs/REFERENCE.md](docs/REFERENCE.md) | API 端點速查、curl 範例、常用操作 |
+| [docs/concepts/architecture.md](docs/concepts/architecture.md) | 系統架構、元件職責、資料流 |
+| [docs/reference/api.md](docs/reference/api.md) | API 端點速查、curl 範例、常用操作 |
+| [ROADMAP.md](ROADMAP.md) | 路線圖：方向、層級、排序 |
+| [BACKLOG.md](BACKLOG.md) | 待辦追蹤（狀態表，BL-N） |
+| [CHANGELOG.md](CHANGELOG.md) | 變更記錄（Keep a Changelog） |
+| [AUDIT.md](AUDIT.md) | 稽核索引（→ `docs/audits/`） |
 
 ---
 

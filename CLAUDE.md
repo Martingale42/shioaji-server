@@ -32,8 +32,8 @@ login/lifecycle), `routes/` (REST), `ws/` (WebSocket market data), `data/`
 (historical-data CLI), with `models.py` / `errors.py`. `scripts/` holds the
 curated data-download chain (`bars.py` engine, `fetch_single*`, one-shot
 `maintenance/`); `catalog/` is the NautilusTrader `ParquetDataCatalog`;
-`universe/` holds index-constituent lists. Design: `docs/ARCHITECTURE.md`;
-endpoint/field reference: `docs/REFERENCE.md`.
+`universe/` holds index-constituent lists. Design: `docs/concepts/architecture.md`;
+endpoint/field reference: `docs/reference/api.md`.
 
 ## Project-specific conventions
 
@@ -47,7 +47,7 @@ repeated. Specific to this project:
 - **Timezone contract: the gateway emits true UTC.** Shioaji returns TW-local
   nanoseconds encoded as UTC; the gateway converts HTTP timestamps
   `ts_utc = ts_tw − 8h` so HTTP, WS, and download scripts agree. Diverging here is
-  a data-correctness bug (the headline finding in `docs/AUDIT.md`).
+  a data-correctness bug (the headline finding in `docs/audits/2026-06-08-shioaji-server.md`).
 - **Catalog mutations are preview-before-mutate.** Regen/restamp scripts diff
   against a backup red-line before writing (this caught a bad ETF tick-size write).
 - **Runtime artifacts live in `~/.shioaji-server/`** (`.env`, `Sinopac.pfx`,
@@ -65,8 +65,8 @@ repeated. Specific to this project:
 
 ## Lifecycle docs
 
-`docs/BACKLOG.md` (open work, BL-N) · `docs/AUDIT.md` (audit findings). No
-ROADMAP/CHANGELOG yet. SOP-canonical location for lifecycle docs is the repo
-root; relocation is deferred here because many in-repo references point at
-`docs/`. Process trail: `docs/plans/` · `docs/qa/` · `docs/reviews/` ·
-`docs/sessions/`. Maintenance SOP: the `maintaining-project-docs` skill.
+`ROADMAP.md` (map) · `BACKLOG.md` (open work, BL-N, status table) ·
+`CHANGELOG.md` · `AUDIT.md` (index → `docs/audits/`). Knowledge docs:
+`docs/concepts/` (architecture) · `docs/reference/` (API cheat-sheet). Process
+trail: `docs/plans/` · `docs/qa/` · `docs/reviews/` · `docs/sessions/`.
+Maintenance SOP: the `maintaining-project-docs` skill.

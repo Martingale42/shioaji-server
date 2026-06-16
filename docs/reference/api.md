@@ -1,5 +1,7 @@
 # API Reference 速查手冊
 
+_Updated: 2026-06-16_
+
 所有 API 端點的 curl 範例和常用操作速查。
 
 Server 預設地址：`http://localhost:8123`（埠號可由 `.env` 的 `SHIOAJI_SERVER_PORT` 設定；本文件範例皆以 `8123` 為例）。
