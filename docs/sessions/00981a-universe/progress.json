@@ -1,0 +1,17 @@
+{
+  "current_batch": 1,
+  "current_step": "execute",
+  "model_assignments": {
+    "executor": {"model": "opus",   "effort": "high",  "agent": "orchestrator-executor"},
+    "reviewer": {"model": "opus",   "effort": "xhigh", "agent": "orchestrator-reviewer"},
+    "qa":       {"model": "sonnet", "effort": "xhigh", "agent": "orchestrator-qa"}
+  },
+  "step_detail": "Ready to begin Batch 1 (Task 1, SPIKE / decision gate). Executor produces docs/reference/00981a-market-data-endpoints.md + GO/NO-GO. If NO-GO, STOP and ask user before any build.",
+  "batches_completed": [],
+  "batches_in_progress": null,
+  "qa_status": null,
+  "audit_status": null,
+  "audit_attempts": 0,
+  "last_updated": "2026-06-16T09:35:00Z",
+  "notes": "00981A top-300 constituent catalog pipeline. Worktree feat/00981a-universe off main. Plan docs/plans/2026-06-16-00981a-constituents-catalog.md; design ...-design.md. Session files namespaced under docs/sessions/00981a-universe/. BATCH 1 = SPIKE decision gate (R1 historical-shares feasibility): NO-GO -> STOP, ask user. BATCH 3 Task 6 (multi-day Shioaji-quota bar download + crontab edit) = USER-COORDINATED: STOP and ask before crontab edit + live download (quota shared with live trading). Final audit: /code-review at high vs main."
+}
