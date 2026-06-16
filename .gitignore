@@ -16,3 +16,5 @@ build/
 # Downloaded historical data (ParquetDataCatalog) — hundreds of MB, not for VCS
 catalog/
 data/catalog/
+# CocoIndex Code (ccc)
+/.cocoindex_code/
