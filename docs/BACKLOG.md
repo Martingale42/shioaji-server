@@ -105,4 +105,17 @@
 
 ---
 
+## BL-8 ·〔Low〕0050 宇宙下市成分股（2823 中壽 / 2888 新光金）歷史 1-min K 回補 — ⏸️ Deferred
+
+- [ ] **狀態**：Deferred（使用者決定暫緩，2026-06-16）
+- **Repo / branch**：`shioaji-server` @ `main`
+- **類型**：data / 歷史回補
+- **背景**：0050 point-in-time 成分宇宙（81 碼）下載現況 `79 complete · 0 partial · 2 no_data · 0 failed`。兩個 no_data 是已下市成分 **2823 中壽**、**2888 新光金**——`resume_0050_fetch.sh` 的 recent-month 探測抓不到下市代碼，catalog 內無任何 parquet（`find catalog -path '*2823*'` 為空）。日常 resume 腳本刻意跳過它們。
+- **處置（待辦）**：對 2823 / 2888 以明確歷史視窗（`shioaji-data fetch-bars --start 2020-03-02 --end <各自下市日>`）單獨回補。⚠️ 風險：Shioaji 是否仍供應已下市代碼的歷史 K 線**未證實**——可能仍抓不到，屆時如實註記「venue 不提供下市歷史」後關票。
+- **配額**：單檔約 5–6 年分鐘 K，估幾十 MB，遠低於每日 500MB 上限（查詢當日剩 462 MB）。
+- **驗收**：2823 / 2888 在 catalog 內有 bars（涵蓋至各自下市日），或確認 venue 不提供、如實註記後關票。
+- **參考**：`scripts/resume_0050_fetch.sh`（註解已標 delisted 需 historical-window fetch）；最新 inspect 見 `~/.shioaji-server/logs/0050_fetch/run-20260616-140001.log`（`79 complete, 0 partial, 2 no_data, 0 failed (81)`）。
+
+---
+
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
