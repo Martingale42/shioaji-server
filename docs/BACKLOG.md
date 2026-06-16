@@ -118,4 +118,19 @@
 
 ---
 
+## BL-9 ·〔Medium〕00981A top-300 成分宇宙歷史 1-min K 下載（多日、配額共用、待簽核）— ⏸️ Open
+
+- [ ] **狀態**：Open（operational / user-coordinated；程式已就緒，等使用者簽核才開跑）
+- **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
+- **類型**：data / 歷史回補（operational run）
+- **背景**：00981A（統一台股增長主動式 ETF）point-in-time top-300 市值聯集宇宙已建好（`universe/00981a_top300_constituents.txt` + `universe/membership_00981a_top300.csv`），成分 1-min K 需以既有 `shioaji-data fetch-bars` 冪等下載進共用 `catalog/`（手法同 0050，零新下載程式）。續傳 cron `scripts/resume_00981a_fetch.sh` 已 clone 自 `resume_0050_fetch.sh` 並驗 `bash -n` 過。
+- **處置（待辦，需使用者協調）**：
+  - 下載量約 7GB（~330–380 碼 × 6 年 1-min bars），本質約 15 天工作（每日 500MB 配額；總位元組固定，與節奏無關）。
+  - 此下載**與實盤交易共用 Shioaji 每日配額**，且競爭較久（約 15 天）——開跑前 `curl /api/account/usage` 確認 `remaining_mb > 0`。
+  - crontab 行 `5 14 * * * /home/cy/Code/MT5/shioaji-server/scripts/resume_00981a_fetch.sh >/dev/null 2>&1` **待使用者簽核**才寫入（配額與實盤競爭，須使用者決定時段）。
+- **驗收**：`uv run shioaji-data inspect --catalog ./catalog` 顯示聯集各碼覆蓋推進至最新交易日；既有 0050/00631L 覆蓋不受影響（無回歸）。
+- **參考**：`docs/plans/2026-06-16-00981a-constituents-catalog.md`（Task 6）；`docs/plans/2026-06-16-00981a-constituents-catalog-design.md`（§B 沿用、執行限制：每日配額）。
+
+---
+
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
