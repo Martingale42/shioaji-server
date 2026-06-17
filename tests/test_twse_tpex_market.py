@@ -76,10 +76,11 @@ def test_empty_schema_only_parquet_is_valid(tmp_path) -> None:
     assert _is_cached_parquet_valid(p) is True
 
 
-# --- F3: per-ex-date fiscal-year delta matching -------------------------------
+# --- F3: per-fiscal-year delta attribution ------------------------------------
 def test_two_in_window_ex_dates_get_their_own_fiscal_year_delta() -> None:
-    # A code with two in-window ex-dates (a 2025 and a 2026 stock dividend) must
-    # each receive ITS fiscal year's delta, not the year-summed total at both.
+    # A code with two in-window ex-dates in DIFFERENT fiscal years (a 2025 and a
+    # 2026 stock dividend) must each receive ITS fiscal year's delta, not the
+    # year-summed total at both.
     ex_events = [
         {"code": "1234", "date": date(2025, 7, 22), "kind": "權息", "fiscal_year": 113},
         {"code": "1234", "date": date(2026, 7, 21), "kind": "權息", "fiscal_year": 114},
@@ -90,6 +91,24 @@ def test_two_in_window_ex_dates_get_their_own_fiscal_year_delta() -> None:
     # Each ex-date gets only its own fiscal-year delta (NOT 150 at both).
     assert by_date[date(2025, 7, 22)] == 100
     assert by_date[date(2026, 7, 21)] == 50
+
+
+def test_two_same_fiscal_year_ex_dates_apply_annual_delta_once() -> None:
+    # The MOPS delta is the ANNUAL total. A code with two ex-dates in the SAME
+    # fiscal year (a real case: 2812 台中銀 ex 2025-08-13 and 2025-10-28) must
+    # apply that total ONCE -- at the earliest ex-date -- not at both (which would
+    # double-count the annual share increase under reconstruct_daily_shares).
+    ex_events = [
+        {"code": "2812", "date": date(2025, 10, 28), "kind": "權", "fiscal_year": 113},
+        {"code": "2812", "date": date(2025, 8, 13), "kind": "權息", "fiscal_year": 113},
+    ]
+    deltas_by_code_year = {("2812", 113): 402_869_238}
+    out = _match_deltas_to_ex_dates(ex_events, deltas_by_code_year)
+    assert len(out) == 1  # exactly one event for the annual distribution
+    assert out[0]["date"] == date(2025, 8, 13)  # the earliest ex-date
+    assert out[0]["shares_delta"] == 402_869_238
+    # The full annual delta is applied exactly once (no 2x over-subtraction).
+    assert sum(r["shares_delta"] for r in out) == 402_869_238
 
 
 def test_ex_date_with_no_matching_delta_is_dropped() -> None:

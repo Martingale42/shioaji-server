@@ -600,23 +600,38 @@ def _match_deltas_to_ex_dates(
 ) -> list[dict[str, object]]:
     """Assign each ex-date the share delta of ITS own fiscal year (audit F3).
 
-    Definition: Join in-window ex-dates to MOPS share deltas on (code, fiscal_year),
-                so a code with two in-window ex-dates (e.g. a 2025 and a 2026 stock
-                dividend) gets each year's delta at its OWN ex-date -- never the
-                multi-year sum applied at both (which double-counts under
-                ``reconstruct_daily_shares``).
-    Formula:    event(e) = (e.code, e.date, deltas_by_code_year[(e.code,
-                e.fiscal_year)], e.kind), dropped if no matching delta or delta == 0.
+    Definition: Attribute each MOPS (code, fiscal-year) ANNUAL share delta to
+                exactly one ex-date, so neither cross-year nor same-year multiple
+                ex-dates double-count under ``reconstruct_daily_shares``.
+    Formula:    For each (code, fiscal_year) with a non-zero MOPS delta, emit ONE
+                event at the EARLIEST in-window ex-date of that (code, fiscal_year)
+                carrying the full annual delta; later ex-dates of the SAME annual
+                distribution carry 0 (dropped). A code with ex-dates in different
+                fiscal years (e.g. 2025 and 2026) gets each year's delta at that
+                year's earliest ex-date.
     Domain:     ``ex_events`` carry a ``fiscal_year`` (set by _fetch_twt49u_ex_dates);
-                ``deltas_by_code_year`` keyed by (code, ROC fiscal year).
-    Returns:    List of {code, date, shares_delta, kind} event-row dicts.
+                ``deltas_by_code_year`` keyed by (code, ROC fiscal year) and holds
+                the ANNUAL total stock-dividend shares (MOPS cell[16]), NOT a
+                per-ex-date split. Attributing it to one date keeps the aggregate
+                annual share change exact; only the intra-year timing of a rare
+                two-tranche distribution is approximated to the first ex-date.
+    Returns:    List of {code, date, shares_delta, kind} event-row dicts, at most
+                one per (code, fiscal_year).
     """
+    # Earliest ex-date per (code, fiscal_year): the single point the annual delta
+    # is attributed to. Iterate in date order so the first seen is the earliest.
+    seen: set[tuple[str, int]] = set()
     rows: list[dict[str, object]] = []
-    for e in ex_events:
+    for e in sorted(ex_events, key=lambda r: r["date"]):
         key = (e["code"], int(e["fiscal_year"]))
+        if key in seen:
+            # A later ex-date of the SAME annual distribution: its shares are already
+            # accounted for by the earliest ex-date's full annual delta.
+            continue
         delta = deltas_by_code_year.get(key)
         if delta is None or delta == 0:
             continue
+        seen.add(key)
         rows.append(
             {
                 "code": e["code"],
