@@ -3,6 +3,23 @@
 > 來源：2026-06-08 修復管線（見 `docs/sessions/2026-06-08-post-report.md`）審查/QA 浮現、但**不在本批範圍**的後續項。
 > 跨 repo 項目統一在此追蹤（逐票標註 repo/branch）。完成後勾選並註記 commit。
 
+## Status (the tracker — every item is a row)
+
+Status: ✅ done · ⏳ open · ⏸️ deferred. The detailed entry for each item
+follows below. Audit findings that produced these items live in
+`docs/audits/2026-06-08-shioaji-server.md`.
+
+| ID | Status | Item | Repo | Source |
+|---|---|---|---|---|
+| BL-1 | ✅ `2139ed2` (+NT `451ebf3`/`9df0581`) | P3 timed-out order true-adopt via custom_field token round-trip | shioaji-server + NT | `docs/plans/2026-06-08-bl1-p3-adopt.md` |
+| BL-2 | ✅ `5ab7c8f` | `scripts/fetch_single.py` F401 dead-import cleanup | shioaji-server | `docs/plans/2026-06-08-bl2-bl4-cleanups.md` |
+| BL-3 | ✅ | catalog metadata restamp (restore NT kv + dtypes after polars round-trip) | shioaji-server | `docs/plans/2026-06-08-bl3-catalog-metadata-restamp.md` |
+| BL-4 | ✅ `f0317ffd21` | NT fork `pyproject.toml` `exclude-newer` TOML parse warning | NT fork | `docs/plans/2026-06-08-bl2-bl4-cleanups.md` |
+| BL-5 | ⏳ open (blocked — live session) | instrument pipeline residual live verification (futures/options + WS-C equivalence + sinopac integration tests) | shioaji-server + NT | `docs/sessions/instruments/BL-5-handoff-checklist.md` |
+| BL-6 | ✅ | Shioaji→NT instrument-definition pipeline (WS-A…D) | shioaji-server + NT | `docs/plans/2026-06-08-instrument-definitions-design.md` |
+| BL-7 | ✅ `f21924c` | `scripts/` cleanup — retire Paradigm A bulk path, relocate maintenance chain | shioaji-server | commit `f21924c` |
+| BL-8 | ⏸️ deferred 2026-06-16 | 0050 delisted constituents (2823/2888) 1-min bar backfill | shioaji-server | `scripts/resume_0050_fetch.sh` |
+
 ---
 
 ## BL-1 ·〔Medium〕P3 超時單「真 adopt」路徑 — ✅ 已修
@@ -100,7 +117,7 @@
   - **刪 superseded 一次性碼**：`migrate_ts_to_utc.py`（剝 NT kv 的回歸根因，標「勿再跑」）、`fix_trade_ids.py`（TradeId 格式被換兩次，且 AUDIT S3 實跑 TypeError）、`resume_00631L_ticks.sh`（00631L tick 已補至 2026-06-05、crontab 自清）。
   - **維護鏈歸位**：`restamp_catalog_metadata.py`/`regen_catalog_instruments.py`/`verify_catalog_restamp.py` 移入 `scripts/maintenance/`（一次性已執行、markers 在 catalog；保留作複用），同步更新 usage docstring + 2 個測試 import。
 - **驗收**：`scripts/` 15→11 檔（兩層）；`uv run ruff check scripts/ tests/` 全綠；`uv run pytest` 56 passed。
-- **連動 AUDIT**：S3（`fix_trade_ids.py` TypeError）因檔案移除而失效、§5「`fetch_historical --auto-resume`」因腳本退役而 obsolete——均已於 `docs/AUDIT.md` 註記。
+- **連動 AUDIT**：S3（`fix_trade_ids.py` TypeError）因檔案移除而失效、§5「`fetch_historical --auto-resume`」因腳本退役而 obsolete——均已於 `docs/audits/2026-06-08-shioaji-server.md` 註記。
 - **未處置（刻意保留）**：`catalog_pre_*_backup/`（558M，regen/restamp 紅線回滾依據）保留至 [[BL-5]] live signoff 後再回收。
 
 ---
@@ -190,4 +207,4 @@
 
 ---
 
-> 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
+> 另：稽核報告 `docs/audits/2026-06-08-shioaji-server.md`（索引見 `AUDIT.md`）其餘未修項——gateway G5–G8、scripts S2/S4/S5、sinopac Rust R1–R5、Python P4–P7、§5 Feature——刻意未納入本 backlog，待後續排程時再挑入。

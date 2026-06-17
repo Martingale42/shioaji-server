@@ -1,5 +1,7 @@
 # Architecture 系統架構
 
+_Updated: 2026-06-16_
+
 ## Overview 概覽
 
 Shioaji Server 是一個 **協定轉換閘道器**，將永豐金 Shioaji Python SDK（同步、callback-based）轉換為標準 REST API + WebSocket 介面，讓 NautilusTrader 的 Rust/PyO3 adapter 可以透過網路協定操作台灣市場。
@@ -316,11 +318,16 @@ shioaji-server/
 ├── LICENSE                 # MIT
 ├── catalog/                # ParquetDataCatalog 輸出（gitignored，shioaji-data 寫入）
 ├── README.md               # 快速開始指南
+├── CLAUDE.md               # agent 操作指引（指令、慣例、坑）
+├── ROADMAP.md              # 路線圖（方向、層級、排序）
+├── BACKLOG.md              # 待辦追蹤（狀態表，BL-N）
+├── CHANGELOG.md            # 變更記錄（Keep a Changelog）
+├── AUDIT.md                # 稽核索引 → docs/audits/
 ├── docs/
-│   ├── ARCHITECTURE.md     # 本文件
-│   ├── REFERENCE.md        # API 速查手冊
-│   ├── architecture-diagram.png / .excalidraw
-│   └── plans/ qa/ reviews/ sessions/ AUDIT.md BACKLOG.md  # 設計/審查工作文件
+│   ├── concepts/           # 架構/設計（本文件 + architecture-diagram.png/.excalidraw）
+│   ├── reference/          # API 速查手冊（api.md）
+│   ├── audits/             # 稽核報告（不可變）
+│   └── plans/ qa/ reviews/ sessions/   # 設計/審查流程記錄
 ├── scripts/                # 一次性維護鏈（restamp / regen / verify catalog），非日常路徑
 │   └── maintenance/
 ├── tests/                  # pytest（offline；gateway/SDK 皆 mock）

@@ -16,4 +16,8 @@ build/
 # Downloaded historical data (ParquetDataCatalog) — hundreds of MB, not for VCS
 catalog/
 data/catalog/
+# Official-data client cache (TWSE/TPEx/MOPS parquet) — not for VCS
 cache/
+
+# CocoIndex Code (ccc)
+/.cocoindex_code/
