@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -31,6 +32,7 @@ import polars as pl
 
 from scripts.twse_tpex_market import (
     CACHE_DIR,
+    CacheFetchError,
     fetch_capital_events,
     fetch_current_shares,
     fetch_daily_close,
@@ -222,7 +224,13 @@ def main() -> None:
     scope_codes = (
         [c.strip() for c in args.codes.split(",") if c.strip()] if args.codes else None
     )
-    union, membership = build_universe(args.end, scope_codes=scope_codes)
+    try:
+        union, membership = build_universe(args.end, scope_codes=scope_codes)
+    except CacheFetchError as exc:
+        # F4: a data-source pull failed wholesale (transient outage). Do NOT write
+        # a degraded universe; exit non-zero so a cron/orchestrator can retry.
+        logger.error("DEGRADED RUN aborted (data-source fetch failure): %s", exc)
+        sys.exit(2)
     if args.no_write:
         logger.info("--no-write set; skipping file output (union=%d)", len(union))
         return

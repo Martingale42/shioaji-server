@@ -30,6 +30,7 @@ shioaji_server, so it remains runnable independent of the trading-engine env.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from datetime import date
@@ -40,6 +41,17 @@ import httpx
 import polars as pl
 
 logger = logging.getLogger(__name__)
+
+
+class CacheFetchError(RuntimeError):
+    """A whole bulk pull failed (all retries exhausted), so the resulting frame is
+    a *failure artifact*, not a legitimately-empty result.
+
+    Raised instead of caching an empty frame caused by total fetch failure, so a
+    transient outage is never frozen as the authoritative (empty) anchor / event
+    set (audit F4). The orchestrator treats this as a degraded run and must retry,
+    rather than silently building the universe on a missing data source.
+    """
 
 # --- Reproducible config (no magic numbers buried in call sites) -------------
 CACHE_DIR = Path("cache/twse_tpex")
@@ -174,6 +186,72 @@ def _http_get_json(
     return None
 
 
+# --- Cache robustness: atomic writes + validate-on-read (audit F2) -----------
+def _is_cached_parquet_valid(path: Path) -> bool:
+    """Decide whether a cached parquet file is safe to read (audit F2).
+
+    Definition: A cache file is valid only if it exists, is non-empty, and parses
+                as parquet — rejecting the zero-byte / truncated artifact a crash
+                mid-write leaves behind (the PROVEN 04:49 failure mode).
+    Domain:     ``path`` may be absent, 0 bytes, truncated garbage, or a well-formed
+                parquet (possibly with 0 rows). A legitimately-empty 0-row frame is
+                still VALID (it parses); only unreadable bytes are rejected.
+    Returns:    True if existing + size>0 + ``pl.read_parquet`` succeeds, else False.
+    """
+    try:
+        if not path.exists() or path.stat().st_size == 0:
+            return False
+        pl.read_parquet(path)
+        return True
+    except Exception as exc:  # noqa: BLE001 - any read failure => invalid cache
+        logger.warning("cache file %s is unreadable (%s); treating as invalid", path, exc)
+        return False
+
+
+def _read_cache_if_valid(path: Path) -> pl.DataFrame | None:
+    """Return a cached frame iff the file is valid; else delete it and signal refetch.
+
+    Definition: Validated cache-read guard replacing the unsafe ``if path.exists()``.
+    Domain:     ``path`` is a per-family cache parquet. An invalid file (0-byte /
+                truncated, the F2 crash artifact) is logged + deleted so the caller
+                falls through to a clean re-fetch instead of aborting the build.
+    Returns:    The parsed DataFrame on a valid hit, or None (cache miss / purged).
+    """
+    if not path.exists():
+        return None
+    if _is_cached_parquet_valid(path):
+        return pl.read_parquet(path)
+    logger.warning("deleting invalid cache file %s; will re-fetch", path)
+    try:
+        path.unlink()
+    except OSError as exc:
+        logger.warning("could not delete invalid cache file %s: %s", path, exc)
+    return None
+
+
+def _atomic_write_parquet(df: pl.DataFrame, path: Path) -> None:
+    """Write a parquet cache file atomically (temp + ``os.replace``) (audit F2).
+
+    Definition: Persist ``df`` so a crash never leaves a partial/zero-byte file at
+                ``path`` — the file appears in full or not at all.
+    Domain:     ``path``'s parent must be creatable. The temp file lives in the same
+                directory so ``os.replace`` is an atomic same-filesystem rename.
+    Returns:    None (writes ``path``; cleans up the temp file on write failure).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    try:
+        df.write_parquet(tmp)
+        os.replace(tmp, path)
+    except Exception:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
+
+
 # --- Family 1: current issued common shares ----------------------------------
 def fetch_current_shares(cache_dir: Path = CACHE_DIR) -> pl.DataFrame:
     """
@@ -186,16 +264,18 @@ def fetch_current_shares(cache_dir: Path = CACHE_DIR) -> pl.DataFrame:
     """
     schema = {"code": pl.Utf8, "name": pl.Utf8, "shares": pl.Int64, "market": pl.Utf8}
     cache_path = cache_dir / "current_shares.parquet"
-    if cache_path.exists():
+    cached = _read_cache_if_valid(cache_path)
+    if cached is not None:
         logger.info("cache hit: current_shares (%s)", cache_path)
-        return pl.read_parquet(cache_path)
+        return cached
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
+    any_pull_succeeded = False
     headers = {"User-Agent": _USER_AGENT, "accept": "application/json"}
     with httpx.Client(headers=headers) as client:
         twse = _http_get_json(client, TWSE_CURRENT_SHARES_URL)
         if isinstance(twse, list):
+            any_pull_succeeded = True
             rows.extend(
                 _parse_current_shares_rows(
                     twse,
@@ -207,10 +287,11 @@ def fetch_current_shares(cache_dir: Path = CACHE_DIR) -> pl.DataFrame:
                 )
             )
         else:
-            logger.warning("TWSE current-shares pull returned no list payload")
+            logger.error("TWSE current-shares pull FAILED (no list payload)")
 
         tpex = _http_get_json(client, TPEX_CURRENT_SHARES_URL)
         if isinstance(tpex, list):
+            any_pull_succeeded = True
             rows.extend(
                 _parse_current_shares_rows(
                     tpex,
@@ -222,11 +303,19 @@ def fetch_current_shares(cache_dir: Path = CACHE_DIR) -> pl.DataFrame:
                 )
             )
         else:
-            logger.warning("TPEx current-shares pull returned no list payload")
+            logger.error("TPEx current-shares pull FAILED (no list payload)")
+
+    # F4: a frame built entirely from failed pulls is a failure artifact, not a
+    # legitimately-empty anchor set. Never cache it; signal a degraded run instead.
+    if not any_pull_succeeded:
+        raise CacheFetchError(
+            "current_shares: both TWSE and TPEx anchor pulls failed; refusing to "
+            "cache an empty anchor set (re-run when the data sources are reachable)"
+        )
 
     df = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
     df = df.unique(subset=["code"], keep="first").sort("code")
-    df.write_parquet(cache_path)
+    _atomic_write_parquet(df, cache_path)
     logger.info("fetched current shares: %d common-stock rows", df.height)
     return df
 
@@ -296,8 +385,9 @@ def fetch_daily_close(
             is_tpex = _is_tpex_code(code, codes)
             for year, month in months:
                 month_path = close_root / code / f"{year}{month:02d}.parquet"
-                if month_path.exists():
-                    frames.append(pl.read_parquet(month_path))
+                cached_month = _read_cache_if_valid(month_path)
+                if cached_month is not None:
+                    frames.append(cached_month)
                     continue
                 if is_tpex:
                     rows = _fetch_tpex_month_close(client, code, year, month)
@@ -319,8 +409,7 @@ def fetch_daily_close(
                 month_df = month_df.filter(
                     (pl.col("date") >= start) & (pl.col("date") <= end)
                 )
-                month_path.parent.mkdir(parents=True, exist_ok=True)
-                month_df.write_parquet(month_path)
+                _atomic_write_parquet(month_df, month_path)
                 frames.append(month_df)
 
     if not frames:
@@ -476,26 +565,56 @@ def fetch_capital_events(
         "shares_delta": pl.Int64,
         "kind": pl.Utf8,
     }
-    if cache_path.exists():
+    cached = _read_cache_if_valid(cache_path)
+    if cached is not None:
         logger.info("cache hit: capital_events (%s)", cache_path)
-        return pl.read_parquet(cache_path)
+        return cached
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
     code_set = set(codes)
 
+    # F4: _fetch_twt49u_ex_dates / _fetch_mops_share_deltas raise CacheFetchError on
+    # a total fetch failure; we let it propagate so a degraded pull is never cached.
     with httpx.Client(headers={"User-Agent": _USER_AGENT}) as client:
         # 3a. Ex-dates that carry a stock-dividend (權) component, in-window.
         ex_events = _fetch_twt49u_ex_dates(client, start, end)
         ex_events = [e for e in ex_events if e["code"] in code_set]
-        # 3b. Per-(market, ROC year) bulk POST -> share deltas (cell[16]).
-        roc_years = sorted({d.year - ROC_OFFSET for d in (start, end)})
-        # The dividend belongs to the PRIOR fiscal year (e.g. mid-2025 ex -> YEAR=113).
-        roc_years = sorted({y - 1 for y in roc_years} | set(roc_years))
-        deltas = _fetch_mops_share_deltas(client, roc_years)
+        # 3b. Per-(market, ROC fiscal year) bulk POST -> share deltas (cell[16]).
+        #     Fetch every fiscal year any in-window ex-date could belong to.
+        roc_years = sorted({int(e["fiscal_year"]) for e in ex_events})
+        deltas_by_code_year = (
+            _fetch_mops_share_deltas(client, roc_years) if roc_years else {}
+        )
 
+    rows = _match_deltas_to_ex_dates(ex_events, deltas_by_code_year)
+
+    df = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
+    df = df.unique(subset=["code", "date"], keep="last").sort(["code", "date"])
+    _atomic_write_parquet(df, cache_path)
+    logger.info("fetched capital events: %d in-window share-changing events", df.height)
+    return df
+
+
+def _match_deltas_to_ex_dates(
+    ex_events: list[dict[str, object]],
+    deltas_by_code_year: dict[tuple[str, int], int],
+) -> list[dict[str, object]]:
+    """Assign each ex-date the share delta of ITS own fiscal year (audit F3).
+
+    Definition: Join in-window ex-dates to MOPS share deltas on (code, fiscal_year),
+                so a code with two in-window ex-dates (e.g. a 2025 and a 2026 stock
+                dividend) gets each year's delta at its OWN ex-date -- never the
+                multi-year sum applied at both (which double-counts under
+                ``reconstruct_daily_shares``).
+    Formula:    event(e) = (e.code, e.date, deltas_by_code_year[(e.code,
+                e.fiscal_year)], e.kind), dropped if no matching delta or delta == 0.
+    Domain:     ``ex_events`` carry a ``fiscal_year`` (set by _fetch_twt49u_ex_dates);
+                ``deltas_by_code_year`` keyed by (code, ROC fiscal year).
+    Returns:    List of {code, date, shares_delta, kind} event-row dicts.
+    """
     rows: list[dict[str, object]] = []
     for e in ex_events:
-        delta = deltas.get(e["code"])
+        key = (e["code"], int(e["fiscal_year"]))
+        delta = deltas_by_code_year.get(key)
         if delta is None or delta == 0:
             continue
         rows.append(
@@ -506,12 +625,23 @@ def fetch_capital_events(
                 "kind": e["kind"],
             }
         )
+    return rows
 
-    df = pl.DataFrame(rows, schema=schema) if rows else pl.DataFrame(schema=schema)
-    df = df.unique(subset=["code", "date"], keep="last").sort(["code", "date"])
-    df.write_parquet(cache_path)
-    logger.info("fetched capital events: %d in-window share-changing events", df.height)
-    return df
+
+def _ex_date_fiscal_year(ex_date: date) -> int:
+    """ROC fiscal year a stock dividend with this ex-date belongs to (audit F3).
+
+    Definition: Map an ex-right date to the ROC fiscal year of the underlying
+                dividend, used to join the ex-date to its MOPS share delta.
+    Formula:    fiscal_year = (ex_date.year - 1) - ROC_OFFSET. The earnings being
+                distributed are the PRIOR calendar year's (a mid-2025 ex-date pays
+                the 2024 = ROC 113 fiscal year); ROC_OFFSET converts to民國年.
+    Domain:     ``ex_date`` an in-window ex-right date. Holds for ordinary annual
+                dividends (the only case in the default window); special interim
+                distributions could differ but are out of scope here.
+    Returns:    ROC (Republic-of-China) fiscal year as an int (e.g. 113).
+    """
+    return (ex_date.year - 1) - ROC_OFFSET
 
 
 def _fetch_twt49u_ex_dates(
@@ -521,7 +651,11 @@ def _fetch_twt49u_ex_dates(
 
     Definition: In-window ex-dates whose 權/息 column contains 權 (shares change).
     Domain:     Returns 4-digit common-stock codes only; pure 息 (cash-only) skipped.
-    Returns:    List of {code, date, kind} where kind is the raw 權/息 label.
+                A None payload (all retries failed) is a fetch FAILURE -> raises
+                ``CacheFetchError`` (audit F4); an OK payload with no 權 rows is a
+                legitimately-empty result -> returns [].
+    Returns:    List of {code, date, kind, fiscal_year}; fiscal_year is the ROC
+                year the dividend belongs to (audit F3 per-ex-date matching).
     """
     params = {
         "startDate": start.strftime("%Y%m%d"),
@@ -529,6 +663,11 @@ def _fetch_twt49u_ex_dates(
         "response": "json",
     }
     payload = _http_get_json(client, TWSE_TWT49U_URL, params)
+    if payload is None:
+        raise CacheFetchError(
+            "TWT49U ex-date pull failed after all retries; refusing to treat a "
+            "transient outage as an empty ex-date set"
+        )
     out: list[dict[str, object]] = []
     if not isinstance(payload, dict) or payload.get("stat") != "OK":
         logger.warning("TWT49U returned no OK payload; no ex-date events")
@@ -545,30 +684,42 @@ def _fetch_twt49u_ex_dates(
         d = _parse_roc_date(str(rec[0]))
         if d is None or d < start or d > end:
             continue
-        out.append({"code": code, "date": d, "kind": kind})
+        out.append(
+            {"code": code, "date": d, "kind": kind, "fiscal_year": _ex_date_fiscal_year(d)}
+        )
     return out
 
 
 def _fetch_mops_share_deltas(
     client: httpx.Client, roc_years: list[int]
-) -> dict[str, int]:
-    """Pull MOPS t05st09sub dividend tables and extract per-code share deltas.
+) -> dict[tuple[str, int], int]:
+    """Pull MOPS t05st09sub dividend tables and extract per-(code, year) deltas.
 
-    Definition: Map code -> stock-dividend share delta (cell[16]) summed over the
-                requested ROC fiscal years across sii/otc markets.
-    Domain:     big5 HTML; cell[0] = "CODE - NAME", cell[16] = 股東配股總股數.
-                A code appearing in multiple years accumulates (rare in a 13-mo window).
-    Returns:    {code: total_shares_delta} for codes with a non-zero stock-dividend.
+    Definition: Map (code, ROC fiscal year) -> stock-dividend share delta (cell[16])
+                across sii/otc markets, keyed by the year the dividend BELONGS to so
+                each ex-date can later be matched to its own event (audit F3).
+    Formula:    delta(code, year) = int(cell[16]) where cell[0] = "CODE - NAME";
+                summed over the two markets (sii + otc) for the same (code, year).
+    Domain:     big5 HTML; cell[0] = "CODE - NAME", cell[16] = 股東配股總股數. Each
+                MOPS YEAR is fetched once per market. A (market, year) whose POST
+                fails after MAX_RETRIES is recorded as a FAILED pull, not an empty
+                one (audit F4): if EVERY pull fails, raises ``CacheFetchError`` so a
+                transient outage is never frozen as an empty event set.
+    Returns:    {(code, roc_year): share_delta} for non-zero stock dividends.
     """
-    totals: dict[str, int] = {}
+    totals: dict[tuple[str, int], int] = {}
+    attempted = 0
+    failed = 0
     for typek in ("sii", "otc"):
         for roc_year in roc_years:
+            attempted += 1
             data = {
                 "TYPEK": typek,
                 "YEAR": str(roc_year),
                 "step": "1",
                 "firstin": "1",
             }
+            html: str | None = None
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     resp = client.post(
@@ -588,16 +739,24 @@ def _fetch_mops_share_deltas(
                     )
                     if attempt < MAX_RETRIES:
                         time.sleep(RETRY_BACKOFF_SECONDS * attempt)
-                    html = ""
                 finally:
                     time.sleep(RATE_LIMIT_SECONDS)
-            else:
-                continue
-            if not html:
+            if html is None:
+                # All retries for this (market, year) failed: a fetch failure, NOT
+                # a year that legitimately had no dividends.
+                failed += 1
                 continue
             for code, delta in _parse_mops_dividend_html(html).items():
-                totals[code] = totals.get(code, 0) + delta
-    return {c: d for c, d in totals.items() if d != 0}
+                key = (code, roc_year)
+                totals[key] = totals.get(key, 0) + delta
+    # F4: if every single pull failed there is no authoritative empty result -- a
+    # total outage must not masquerade as "no dividends this window".
+    if attempted > 0 and failed == attempted:
+        raise CacheFetchError(
+            f"MOPS share-delta pull: all {attempted} (market, year) POSTs failed; "
+            "refusing to treat a total outage as an empty event set"
+        )
+    return {k: d for k, d in totals.items() if d != 0}
 
 
 class _MopsTableParser(HTMLParser):
