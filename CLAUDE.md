@@ -60,6 +60,15 @@ repeated. Specific to this project:
 - **ETF tick size ≠ stock tick size.** TWSE category `"00"` (ETF) uses a different
   tick ladder (`<50 → 0.01`, `≥50 → 0.05`); applying the stock ladder mis-sizes
   `0050` / `00631L`.
+- **`shioaji-data` bar/tick fetch MUST run `--concurrency 1`.** The gateway shares
+  ONE Shioaji session (`sj.api`); `--concurrency >1` fires concurrent `api.kbars()`
+  calls on that single, non-thread-safe session — they interfere and return empty,
+  the availability probe reads empty, and the ticker is reported `no_data` (a silent
+  load-failure masquerading as "this code has no data"). Symptom: the first few codes
+  succeed, then a monotonic `no_data` cascade for the rest of the run. The
+  `scripts/resume_*.sh` scripts pin `--concurrency 1`; do not raise it. Verified
+  2026-06-17: codes returning `no_data` at `--concurrency 4` downloaded 250k–370k bars
+  each at `--concurrency 1`. See `BACKLOG.md` BL-14.
 - Credentials (`SHIOAJI_SECRET_KEY`) are shown once at creation — never echo or
   commit them.
 

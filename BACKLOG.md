@@ -19,6 +19,12 @@ follows below. Audit findings that produced these items live in
 | BL-6 | ✅ | Shioaji→NT instrument-definition pipeline (WS-A…D) | shioaji-server + NT | `docs/plans/2026-06-08-instrument-definitions-design.md` |
 | BL-7 | ✅ `f21924c` | `scripts/` cleanup — retire Paradigm A bulk path, relocate maintenance chain | shioaji-server | commit `f21924c` |
 | BL-8 | ⏸️ deferred 2026-06-16 | 0050 delisted constituents (2823/2888) 1-min bar backfill | shioaji-server | `scripts/resume_0050_fetch.sh` |
+| BL-9 | ⏳ open | 00981A top-300 成分宇宙歷史 1-min K 下載（多日、配額共用） | shioaji-server | `docs/plans/2026-06-16-00981a-constituents-catalog.md` |
+| BL-10 | ⏳ open (spike NO-GO) | 00981A 股本變動：減資負 delta + 轉換未捕捉 | shioaji-server | final-audit F1 |
+| BL-11 | ⏳ open | 00981A 官方資料 client 快取健壯性 + 觀測性 | shioaji-server | final-audit F6 + re-audit |
+| BL-12 | ⏸️ deferred 2026-06-17 | 00981A R4 子集驗證（揭露持股 ⊆ 聯集） | shioaji-server | design R4 / final-audit |
+| BL-13 | ⏳ open | 00981A universe 程式碼整潔/效率 + resume 註解 | shioaji-server | final-audit F7–F10 + QA |
+| BL-14 | ⏳ open (fix applied, uncommitted) | `fetch-bars`/`fetch-ticks` `--concurrency >1` → silent `no_data` cascade (single Shioaji session) | shioaji-server | this session 2026-06-17 |
 
 ---
 
@@ -141,9 +147,10 @@ follows below. Audit findings that produced these items live in
 - **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
 - **類型**：data / 歷史回補（operational run）
 - **背景**：00981A（統一台股增長主動式 ETF）point-in-time top-300 市值聯集宇宙已建好（`universe/00981a_top300_constituents.txt` + `universe/membership_00981a_top300.csv`），成分 1-min K 需以既有 `shioaji-data fetch-bars` 冪等下載進共用 `catalog/`（手法同 0050，零新下載程式）。續傳 cron `scripts/resume_00981a_fetch.sh` 已 clone 自 `resume_0050_fetch.sh` 並驗 `bash -n` 過。
+- **⚠️ 必讀（2026-06-17）**：此回補**必須 `--concurrency 1`**——`--concurrency 4` 會觸發 [[BL-14]] 的靜默 `no_data` 連鎖（單一 Shioaji session）。`scripts/resume_00981a_fetch.sh` 已釘 1。早期以 concurrency=4 跑出的大量 `no_data` 多為此 bug，**非真無資料**：264 個 no_data 中僅 ~220 真缺、44 個 catalog 其實已有資料。
 - **處置（待辦，需使用者協調）**：
-  - 下載量約 7GB（~330–380 碼 × 6 年 1-min bars），本質約 15 天工作（每日 500MB 配額；總位元組固定，與節奏無關）。
-  - 此下載**與實盤交易共用 Shioaji 每日配額**，且競爭較久（約 15 天）——開跑前 `curl /api/account/usage` 確認 `remaining_mb > 0`。
+  - 下載量約 7GB（~330–380 碼 × 6 年 1-min bars）；**每日配額現為 2GB**（非舊註的 500MB）→ 本質約 **4 天**工作（總位元組固定，與節奏無關）。
+  - 此下載**與實盤交易共用 Shioaji 每日配額**——開跑前 `curl /api/account/usage` 確認 `remaining_mb > 0`。
   - crontab 行 `5 14 * * * /home/cy/Code/MT5/shioaji-server/scripts/resume_00981a_fetch.sh >/dev/null 2>&1` **待使用者簽核**才寫入（配額與實盤競爭，須使用者決定時段）。
 - **驗收**：`uv run shioaji-data inspect --catalog ./catalog` 顯示聯集各碼覆蓋推進至最新交易日；既有 0050/00631L 覆蓋不受影響（無回歸）。
 - **參考**：`docs/plans/2026-06-16-00981a-constituents-catalog.md`（Task 6）；`docs/plans/2026-06-16-00981a-constituents-catalog-design.md`（§B 沿用、執行限制：每日配額）。
@@ -204,6 +211,20 @@ follows below. Audit findings that produced these items live in
   - **QA BUG-001/002** `scripts/resume_00981a_fetch.sh:4,15` 沿用自 0050 的陳舊註解(「81-code union」、0050 下市 2823/2888),功能無影響,改為 00981A 通用敘述。
 - **驗收**：ruff/pyright 清;測試全綠;resume 註解正確。
 - **參考**：`docs/reviews/2026-06-16-00981a-final-audit.md`（F7–F10）；`docs/qa/2026-06-16-00981a-full-qa.md`（BUG-001/002）。
+
+---
+
+## BL-14 ·〔Important〕`fetch-bars`/`fetch-ticks` `--concurrency >1` → 靜默 `no_data` 連鎖 — ⏳ Open（修復已套用待 commit）
+
+- [ ] **狀態**：Open（concurrency 修復已套用至兩支 resume 腳本 + CLAUDE.md gotcha，待 commit；下方 probe-masking robustness 仍 open）
+- **Repo / branch**：`shioaji-server` @ `main`
+- **類型**：data completeness / robustness（`src/shioaji_server/data/{bars,fetch}.py`、`scripts/resume_*.sh`）
+- **根因**：gateway 全程共用單一 Shioaji session（`market_data.py`：`await sj.run_sync(_fetch_kbars, sj.api, ...)`）。`--concurrency >1` 讓多個 thread **同時**對這個非 thread-safe 的 session 呼叫 `api.kbars()` → 互相干擾回傳空陣列 → `probe_kbar_availability`（`bars.py:115-119`）讀到空 → ticker 被報 `no_data`。症狀：前幾碼成功，之後**單向 `no_data` 連鎖**到整個 run 結束（一旦 session 在持續並發壓力下被打趴，run 內不恢復）。
+- **證據（2026-06-17）**：`resume_00981a_fetch.sh`（`--concurrency 4`）兩次 run 為 `4 complete / 3 partial / 388 no_data` 與 `127 / 4 / 264`；no_data 名單含 **2330**（不可能無資料）。同名碼以 `--concurrency 1` 重抓 → `4 complete, 0 no_data`（2606/3005/6005/8210 各 24–37 萬根 bar；2607 = 276804 根）。0050 早期亦曾因此 `51c/30nd`(06-11)→ 多日續傳磨平到 `79c/2nd`，故當時 concurrency=4「看似可行」其實是快取填滿降低並發壓力後才收斂。
+- **修復（已套用，本 session）**：`scripts/resume_00981a_fetch.sh` 與 `scripts/resume_0050_fetch.sh` 的 `fetch-bars` 釘 `--concurrency 1` + inline「REQUIRED 勿調高」註解；`CLAUDE.md` Gotchas 新增此條。
+- **Open follow-up（src 層 robustness，根本解）**：`probe_kbar_availability` 把**所有例外**靜默吞掉並回 `False`，`fetch_bars_one`/`fetch_ticks_one` 對「真的無資料」與「probe 暫時/負載失敗」回報同一個 `no_data` → load-failure 偽裝成 no_data，正是此 bug 藏久的原因。待辦擇一：(a) 區分 `failed`（probe raise / 負載回空）與 `no_data`（真無資料）；(b) probe 加重試；(c) 偵測連鎖（先有成功後連續 N 個 no_data）即大聲中止。
+- **驗收**：concurrency=1 全宇宙 run 無 cascade（no_data 僅限真無資料 / 真配額耗盡）；src 修復後注入「負載回空」→ 報 `failed` 而非 `no_data` + 單元測試。
+- **參考**：本 session log `~/.shioaji-server/logs/00981a_fetch/run-20260617-{210502,213734,221002}.log`；`CLAUDE.md` Gotchas。
 
 ---
 

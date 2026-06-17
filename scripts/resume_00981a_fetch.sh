@@ -41,11 +41,15 @@ cd "$REPO" || { echo "repo not found: $REPO" >&2; exit 1; }
   curl -s -m 10 "$GATEWAY/api/account/usage" || echo "(usage query failed)"
   echo
   echo "--- fetch-bars (idempotent resume) ---"
+  # --concurrency 1 is REQUIRED, not a tunable: the gateway shares one non-thread-safe
+  # Shioaji session, so concurrent kbars() calls interfere and return empty → the probe
+  # reads empty → a silent no_data cascade for the rest of the run (see CLAUDE.md
+  # Gotchas / BACKLOG BL-14). Do NOT raise it.
   uv run shioaji-data fetch-bars \
       --gateway-url "$GATEWAY" \
       --codes-file "$CODES" \
       --catalog "$CATALOG" \
-      --start 2020-03-02 --concurrency 4
+      --start 2020-03-02 --concurrency 1
   echo "fetch-bars exit_code=$?"
   echo
   echo "--- quota after ---"
