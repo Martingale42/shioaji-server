@@ -24,7 +24,7 @@ follows below. Audit findings that produced these items live in
 | BL-11 | ⏳ open | 00981A 官方資料 client 快取健壯性 + 觀測性 | shioaji-server | final-audit F6 + re-audit |
 | BL-12 | ⏸️ deferred 2026-06-17 | 00981A R4 子集驗證（揭露持股 ⊆ 聯集） | shioaji-server | design R4 / final-audit |
 | BL-13 | ⏳ open | 00981A universe 程式碼整潔/效率 + resume 註解 | shioaji-server | final-audit F7–F10 + QA |
-| BL-14 | ⏳ open (fix applied, uncommitted) | `fetch-bars`/`fetch-ticks` `--concurrency >1` → silent `no_data` cascade (single Shioaji session) | shioaji-server | this session 2026-06-17 |
+| BL-14 | ⏳ open (scripts pinned @`f428c25`; robustness follow-up open) | `fetch-bars`/`fetch-ticks` `--concurrency >1` → silent `no_data` cascade (single Shioaji session) | shioaji-server | this session 2026-06-17 |
 
 ---
 
@@ -216,7 +216,7 @@ follows below. Audit findings that produced these items live in
 
 ## BL-14 ·〔Important〕`fetch-bars`/`fetch-ticks` `--concurrency >1` → 靜默 `no_data` 連鎖 — ⏳ Open（修復已套用待 commit）
 
-- [ ] **狀態**：Open（concurrency 修復已套用至兩支 resume 腳本 + CLAUDE.md gotcha，待 commit；下方 probe-masking robustness 仍 open）
+- [ ] **狀態**：Open（concurrency 修復已 commit `f428c25` → 兩支 resume 腳本 `--concurrency 1` + CLAUDE.md gotcha + CHANGELOG；下方 probe-masking robustness 仍 open）
 - **Repo / branch**：`shioaji-server` @ `main`
 - **類型**：data completeness / robustness（`src/shioaji_server/data/{bars,fetch}.py`、`scripts/resume_*.sh`）
 - **根因**：gateway 全程共用單一 Shioaji session（`market_data.py`：`await sj.run_sync(_fetch_kbars, sj.api, ...)`）。`--concurrency >1` 讓多個 thread **同時**對這個非 thread-safe 的 session 呼叫 `api.kbars()` → 互相干擾回傳空陣列 → `probe_kbar_availability`（`bars.py:115-119`）讀到空 → ticker 被報 `no_data`。症狀：前幾碼成功，之後**單向 `no_data` 連鎖**到整個 run 結束（一旦 session 在持續並發壓力下被打趴，run 內不恢復）。

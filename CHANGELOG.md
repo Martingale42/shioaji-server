@@ -38,6 +38,14 @@ breaking change that requires a catalog re-stamp or re-download.
 
 ### Fixed
 
+- Data-fetch `no_data` cascade: the resume scripts (`resume_00981a_fetch.sh`,
+  `resume_0050_fetch.sh`) now pin `shioaji-data fetch-bars --concurrency 1`.
+  The gateway shares one non-thread-safe Shioaji session, so `--concurrency >1`
+  fired concurrent `api.kbars()` calls that returned empty; the availability
+  probe read empty and silently reported `no_data`, cascading for the rest of a
+  run (e.g. 388/395 codes on the 00981A universe at `--concurrency 4`). The
+  deeper fix — surfacing a load failure as `failed` rather than `no_data` — is
+  tracked as BL-14.
 - Session self-heal regressions: relogin under lock, the reconnect window,
   resubscribe readiness, and bounded backoff with alerting (audit G1–G4).
 - P3 timed-out orders now true-adopt via a `custom_field` token round-trip,
