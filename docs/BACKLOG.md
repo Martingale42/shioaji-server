@@ -133,4 +133,20 @@
 
 ---
 
+## BL-10 ·〔Medium〕00981A 股本變動：減資（負 delta）+ 可轉債/現增轉換尚未捕捉 — ⏸️ Open（F1）
+
+- [ ] **狀態**：Open（spike 已做，exact signed-delta 無乾淨機器來源 → NO-GO，移本票追蹤）
+- **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
+- **類型**：data completeness / survivorship 修正
+- **背景（final-audit F1）**：`fetch_capital_events` 只由 TWT49U「權」除權日 ∩ MOPS 正值配股 delta 取事件，故**減資（負 delta）**與**可轉債/GDR/私募現增轉換**結構性看不到。窗內影響非微小：TWSE TWTAUU 列出 **17 檔窗內減資**，其中 **5 檔（1808 潤隆 / 2101 南港 / 2352 佳世達 / 2371 大同 / 2607 榮運）是現行聯集成員**。
+- **Spike 結果（2026-06-17）**：
+  - ✅ **事件日 + 性質（kind）有乾淨機器來源** — TWSE **TWTAUU**（減資恢復買賣參考價格）：`GET https://www.twse.com.tw/exchangeReport/TWTAUU?startDate=YYYYMMDD&endDate=YYYYMMDD&response=json`，回 `stat:OK` + `data` 列，欄位 `[恢復買賣日期, 股票代號, 名稱, 停止買賣前收盤價, 恢復買賣參考價, ..., 除權參考價, 減資原因, 詳細資料]`（減資原因如「退還股款」/「彌補虧損」→ 映 `kind`）。與 TWT49U 同形。
+  - ❌ **精確 signed share-delta 無乾淨 polars+httpx 來源**：換股率/減資後股數需 (a) MOPS `t16sn02` 公司增減資表——JS 多步 SPA 流程，非乾淨 endpoint；或 (b) `停止前收盤 / 恢復參考價` 反推換股率——**近似值，任務明令禁止 fabricate/approximate**。TWTAVU（明細含換股率）區間查詢回 0 列。TPEx 減資 endpoint 當日被環境 SSL（`Missing Subject Key Identifier`）擋，未能驗。
+  - **裁決：NO-GO**（精確 delta 無機器來源 + 禁止近似）。`reconstruct_daily_shares` 已支援負 delta，缺的只是精確事件來源。
+- **處置（待辦）**：取得精確減資 signed-delta 後，於 `fetch_capital_events` 併入 TWTAUU 事件（date+kind 已可機器取得）+ 精確股數變動；路徑候選：① 以瀏覽器工具（playwright）抓 MOPS `t16sn02` 公司增減資表精確股數；② 確認 TWSE 是否有區間版 TWTAVU/換股率 dataset；③ 與 R4（揭露持股對照）一併驗證。重抓 capital_events 便宜（不需重抓 close）。
+- **驗收**：5 檔在聯集的窗內減資股能以**精確**負 delta 重建 pre-event 股數（對得上獨立來源，如玉山金 R1 探針手法）；union/membership 重生後比對。
+- **參考**：`docs/reviews/2026-06-16-00981a-final-audit.md` F1；`docs/reference/00981a-market-data-endpoints.md` 家族 3；`reconstruct_daily_shares`（已處理負 delta + 對應測試 `test_reconstruct_capital_decrease_negative_delta`）。
+
+---
+
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
