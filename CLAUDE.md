@@ -42,7 +42,7 @@ repeated. Specific to this project:
 
 - **Cross-repo with a forked NautilusTrader.** Depends on `nautilus_trader` @
   `sinopac-adapter-clean`, installed as a pinned per-platform wheel
-  (`v1.226.2-sinopac`; see `[tool.uv.sources]` in `pyproject.toml`). Many changes
+  (`v1.226.3-sinopac`; see `[tool.uv.sources]` in `pyproject.toml`). Many changes
   span both repos — backlog items tag repo + branch + commit on each side.
 - **Timezone contract: the gateway emits true UTC.** Shioaji returns TW-local
   nanoseconds encoded as UTC; the gateway converts HTTP timestamps

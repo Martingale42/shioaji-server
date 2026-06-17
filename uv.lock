@@ -471,8 +471,8 @@ sdist = { url = "https://files.pythonhosted.org/packages/de/f2/c1704d86d82ad2164
 
 [[package]]
 name = "nautilus-trader"
-version = "1.226.2"
-source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-macosx_15_0_arm64.whl" }
+version = "1.226.3"
+source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-macosx_15_0_arm64.whl" }
 resolution-markers = [
     "sys_platform == 'darwin'",
 ]
@@ -489,7 +489,7 @@ dependencies = [
     { name = "uvloop", marker = "sys_platform == 'darwin'" },
 ]
 wheels = [
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:3287b495f8241aee17291a354dd1679333f8c36a8d664ba04fc58e6be2f4bfcb" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:891f187bdc642a1658370fdc23998fa3b6839454bec585abd5bf7ccab108bd00" },
 ]
 
 [package.metadata]
@@ -516,8 +516,8 @@ provides-extras = ["betfair", "docker", "ib", "polymarket", "visualization"]
 
 [[package]]
 name = "nautilus-trader"
-version = "1.226.2"
-source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-manylinux_2_35_x86_64.whl" }
+version = "1.226.3"
+source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-manylinux_2_35_x86_64.whl" }
 resolution-markers = [
     "sys_platform == 'linux'",
 ]
@@ -534,7 +534,7 @@ dependencies = [
     { name = "uvloop", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-manylinux_2_35_x86_64.whl", hash = "sha256:08f75ee1502097925228f49e5554fff8d88b06ca915fa77d10d1b754c8636059" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-manylinux_2_35_x86_64.whl", hash = "sha256:dbffed726354f67dc65108ae285291f894dc5e870a3b094260a2ef2f79cd652a" },
 ]
 
 [package.metadata]
@@ -561,8 +561,8 @@ provides-extras = ["betfair", "docker", "ib", "polymarket", "visualization"]
 
 [[package]]
 name = "nautilus-trader"
-version = "1.226.2"
-source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-win_amd64.whl" }
+version = "1.226.3"
+source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-win_amd64.whl" }
 resolution-markers = [
     "sys_platform == 'win32'",
 ]
@@ -578,7 +578,7 @@ dependencies = [
     { name = "tqdm", marker = "sys_platform == 'win32'" },
 ]
 wheels = [
-    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-win_amd64.whl", hash = "sha256:89a73bca80a1c5198fc7eed120fcec754b76b3cf3d85bd912b6ab72708fde67d" },
+    { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-win_amd64.whl", hash = "sha256:6518c9ca7beb22c258a05fe0324688a43eaab2c35a97d04029dd40f02bc24de2" },
 ]
 
 [package.metadata]
@@ -1210,9 +1210,9 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "nautilus-trader", version = "1.224.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "nautilus-trader", version = "1.226.2", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-macosx_15_0_arm64.whl" }, marker = "sys_platform == 'darwin'" },
-    { name = "nautilus-trader", version = "1.226.2", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-manylinux_2_35_x86_64.whl" }, marker = "sys_platform == 'linux'" },
-    { name = "nautilus-trader", version = "1.226.2", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
+    { name = "nautilus-trader", version = "1.226.3", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-macosx_15_0_arm64.whl" }, marker = "sys_platform == 'darwin'" },
+    { name = "nautilus-trader", version = "1.226.3", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-manylinux_2_35_x86_64.whl" }, marker = "sys_platform == 'linux'" },
+    { name = "nautilus-trader", version = "1.226.3", source = { url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
     { name = "polars" },
     { name = "shioaji", extra = ["speed"] },
     { name = "uvicorn", extra = ["standard"] },
@@ -1230,9 +1230,9 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "nautilus-trader", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "nautilus-trader", marker = "sys_platform == 'darwin'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-macosx_15_0_arm64.whl" },
-    { name = "nautilus-trader", marker = "sys_platform == 'linux'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-manylinux_2_35_x86_64.whl" },
-    { name = "nautilus-trader", marker = "sys_platform == 'win32'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.2-sinopac/nautilus_trader-1.226.2-cp313-cp313-win_amd64.whl" },
+    { name = "nautilus-trader", marker = "sys_platform == 'darwin'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-macosx_15_0_arm64.whl" },
+    { name = "nautilus-trader", marker = "sys_platform == 'linux'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-manylinux_2_35_x86_64.whl" },
+    { name = "nautilus-trader", marker = "sys_platform == 'win32'", url = "https://github.com/Martingale42/nautilus_trader/releases/download/v1.226.3-sinopac/nautilus_trader-1.226.3-cp313-cp313-win_amd64.whl" },
     { name = "polars", specifier = ">=1.0.0" },
     { name = "shioaji", extras = ["speed"] },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
