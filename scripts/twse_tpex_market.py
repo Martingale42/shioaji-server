@@ -429,20 +429,30 @@ def _fetch_tpex_month_close(
     return rows
 
 
+_MISSING_CLOSE_TOKENS = frozenset({"", "--", "---", "0.00"})
+
+
 def _to_float(raw: str | int | float | None) -> float | None:
     """Coerce a possibly comma-laden numeric string to float.
 
-    Definition: Parse a closing price from raw official-data text.
-    Domain:     ``raw`` like ``"967.00"`` / ``"1,234.50"`` / ``"--"`` (suspended).
-    Returns:    float, or None if not parseable.
+    Definition: Parse a closing price from raw official-data text, mapping
+                missing/suspended-day sentinels to None (not a fabricated 0.0).
+    Formula:    value = float(strip_commas_whitespace(raw)); a blank cell,
+                ``"--"``/``"---"`` (suspended), or the ``"0.00"`` no-trade
+                sentinel all map to None (price absent that day).
+    Domain:     ``raw`` like ``"967.00"`` / ``"1,234.50"`` (real close) or one of
+                ``""`` / ``"--"`` / ``"---"`` / ``"0.00"`` (no price that day). A
+                fabricated 0.0 close would yield a spurious zero-mktcap row that can
+                split a membership interval, so all of these are treated as missing.
+    Returns:    float close price, or None if missing/unparseable. Unit: NTD/share.
     """
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
         return float(raw)
     cleaned = raw.replace(",", "").strip()
-    if not cleaned or cleaned in {"--", "---", "0.00"}:
-        return None if cleaned in {"--", "---"} else 0.0
+    if cleaned in _MISSING_CLOSE_TOKENS:
+        return None
     try:
         return float(cleaned)
     except ValueError:
