@@ -10,6 +10,8 @@ breaking change that requires a catalog re-stamp or re-download.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-06-17
+
 ### Added
 
 - 00981A point-in-time **top-300 market-cap constituent universe**
@@ -54,6 +56,5 @@ breaking change that requires a catalog re-stamp or re-download.
   dtypes, restoring `ParquetDataCatalog.query()` (BL-3).
 - `scripts/fetch_single.py` dead-import (F401) cleanup (BL-2).
 
-<!-- First release is not yet tagged. When tagging 0.1.0, move the above into a
-     [0.1.0] — YYYY-MM-DD section and add a release link below. -->
-[Unreleased]: https://github.com/Martingale42/shioaji-server/commits/main
+[Unreleased]: https://github.com/Martingale42/shioaji-server/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Martingale42/shioaji-server/releases/tag/v0.1.0
