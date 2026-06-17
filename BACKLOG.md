@@ -151,7 +151,7 @@ follows below. Audit findings that produced these items live in
 - **處置（待辦，需使用者協調）**：
   - 下載量約 7GB（~330–380 碼 × 6 年 1-min bars）；**每日配額現為 2GB**（非舊註的 500MB）→ 本質約 **4 天**工作（總位元組固定，與節奏無關）。
   - 此下載**與實盤交易共用 Shioaji 每日配額**——開跑前 `curl /api/account/usage` 確認 `remaining_mb > 0`。
-  - crontab 行 `5 14 * * * /home/cy/Code/MT5/shioaji-server/scripts/resume_00981a_fetch.sh >/dev/null 2>&1` **待使用者簽核**才寫入（配額與實盤競爭，須使用者決定時段）。
+  - crontab 行 `5 14 * * * /home/cy/Code/MT5/shioaji-server/scripts/resume_00981a_fetch.sh >/dev/null 2>&1` **已安裝**（2026-06-17 使用者簽核；首次執行 2026-06-18 14:05，收盤後 + 配額重置後，比 0050 的 14:00 錯開 5 分鐘）。全碼覆蓋至最新交易日後以 `crontab -e` 移除此行。
 - **驗收**：`uv run shioaji-data inspect --catalog ./catalog` 顯示聯集各碼覆蓋推進至最新交易日；既有 0050/00631L 覆蓋不受影響（無回歸）。
 - **參考**：`docs/plans/2026-06-16-00981a-constituents-catalog.md`（Task 6）；`docs/plans/2026-06-16-00981a-constituents-catalog-design.md`（§B 沿用、執行限制：每日配額）。
 
