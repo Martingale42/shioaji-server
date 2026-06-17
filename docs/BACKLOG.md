@@ -147,6 +147,47 @@
 - **驗收**：5 檔在聯集的窗內減資股能以**精確**負 delta 重建 pre-event 股數（對得上獨立來源，如玉山金 R1 探針手法）；union/membership 重生後比對。
 - **參考**：`docs/reviews/2026-06-16-00981a-final-audit.md` F1；`docs/reference/00981a-market-data-endpoints.md` 家族 3；`reconstruct_daily_shares`（已處理負 delta + 對應測試 `test_reconstruct_capital_decrease_negative_delta`）。
 
+## BL-11 ·〔Medium〕00981A 官方資料 client 快取健壯性 + 觀測性後續 — ⏸️ Open（final-audit F6 + re-audit）
+
+- [ ] **狀態**：Open（current artifact 已驗證正確；以下為前瞻性健壯性，非現有產物缺陷）
+- **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
+- **類型**：robustness / data-integrity（`scripts/twse_tpex_market.py`、`scripts/build_00981a_universe.py`）
+- **背景**：final-audit 已修 F2（原子寫入 temp+`os.replace` + 讀取驗證 size>0/可解析）、F4（總失敗 raise `CacheFetchError` 不快取空檔）。re-audit 浮現未竟項:
+  - **〔Important〕單一來源部分外停仍快取不完整檔**：F4 只擋「總失敗」；若**單一交易所來源整段失敗**(如 TPEx 全掛但 TWSE 成功 → 快取 TWSE-only `current_shares`;MOPS otc 掛但 sii 成功 → `capital_events` 缺 OTC)，會寫入「非空但不完整」的權威檔並凍結。需決策 fail-loud(任一市場整段失敗即 raise)vs proceed-degraded-with-signal。
+  - **〔Low〕F6 快取未以參數為 key**：`current_shares`/`capital_events` 僅以檔案存在判定;以較晚 `--end` 重跑會 cache-hit 舊視窗。應以(視窗, 碼集, 抓取日)為 key 或版本化。
+  - **〔Low〕讀取重複解析**：`_is_cached_parquet_valid` + 後續讀取各解析一次,暖快取 27k 檔倍增本地解析成本。改為單次讀取 try/except。
+  - **〔Low〕總收盤外停退出碼不一致**：`build_00981a_universe` 以 RuntimeError(exit 1)而非 F4 的 exit 2;安全(不寫 universe)但訊號不一致。
+- **驗收**：注入單一市場整段失敗 → 不產生不完整權威快取(raise 或明確 degraded 訊號);相關單元測試。
+- **參考**：`docs/reviews/2026-06-16-00981a-final-audit.md`（F2/F4/F6 + Re-audit cycle 1）。
+
+---
+
+## BL-12 ·〔Medium〕00981A R4 子集驗證（揭露持股 ⊆ 聯集）— ⏸️ Deferred（使用者決定）
+
+- [ ] **狀態**：Deferred（2026-06-17 使用者選 B：不提供 holdings snapshot，先進 QA/audit）
+- **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
+- **類型**：validation / survivorship 完整性驗收
+- **背景**：設計關鍵驗收 R4 = 確認 00981A **實際揭露持股 ⊆ 395 碼聯集**。`build_00981a_universe` 的 R4 程式路徑已就緒(無 snapshot 時誠實 SKIP、有 snapshot 時記 miss 不靜默放寬,QA 已驗),但缺輸入檔 `universe/00981a_holdings_snapshot.txt`(00981A 揭露持股 / 統一投信每日 PCF)。R4 未跑 → 聯集對 ETF 實際選股的涵蓋未經量化驗證。
+- **處置**：取得 00981A 揭露持股清單(一行一碼)放 `universe/00981a_holdings_snapshot.txt` → 重跑 `uv run --no-project --with polars --with httpx python -m scripts.build_00981a_universe --end <date>` → 確認 holdings ⊆ union;若有 miss,檢查 top-N 切點/篩選或放寬 N(勿靜默放寬)。可與 BL-10(減資 delta)一併驗。
+- **驗收**：R4 log 顯示 0 miss(或明列 miss 供檢視);union 比對。
+- **參考**：`docs/plans/2026-06-16-00981a-constituents-catalog-design.md` R4；`docs/reviews/2026-06-16-00981a-final-audit.md`。
+
+---
+
+## BL-13 ·〔Low〕00981A universe 程式碼整潔/效率 + resume 註解 — ⏸️ Open（final-audit F7–F10 + QA）
+
+- [ ] **狀態**：Open（皆非阻斷;cleanup/maintainability）
+- **Repo / branch**：`shioaji-server` @ `feat/00981a-universe`
+- **類型**：cleanup / efficiency / docs
+- **背景（final-audit F7–F10 + QA BUG-001/002）**：
+  - **F7** TWSE/TPEx 路由經 module global(`_TPEX_CODES`/`set_tpex_codes`/`_is_tpex_code`,含死參數 `all_codes`):應把 per-code `market` 欄位(`fetch_current_shares` 已產出)穿進 `fetch_daily_close`,移除全域 + 死參數。
+  - **F8** `build_union_and_membership` 逐碼全表 filter(O(碼×列));`daily_top_n` 二次全表 group_by;`reconstruct_daily_shares` 全 cross-join:可向量化(group_by + 累積 gap run-id)。資料量小,屬 hygiene。
+  - **F9** `_fetch_twse_month_close`/`_fetch_tpex_month_close` ~12 行解析迴圈逐字重複:抽 `_parse_close_records(records, code)` 避免修法漂移。
+  - **F5 殘留(Low)** `_to_float` 僅捕捉精確 `"0.00"`;`"0"`/`"0.0"` 等零拼寫仍轉 0.0(官方端點 2 位小數,當前不觸發)。收緊為數值零判定。
+  - **QA BUG-001/002** `scripts/resume_00981a_fetch.sh:4,15` 沿用自 0050 的陳舊註解(「81-code union」、0050 下市 2823/2888),功能無影響,改為 00981A 通用敘述。
+- **驗收**：ruff/pyright 清;測試全綠;resume 註解正確。
+- **參考**：`docs/reviews/2026-06-16-00981a-final-audit.md`（F7–F10）；`docs/qa/2026-06-16-00981a-full-qa.md`（BUG-001/002）。
+
 ---
 
 > 另：AUDIT.md 其餘未修項（Rust R1–R5、Python P4–P7、scripts S4–S5、§5 Feature）仍在 `docs/AUDIT.md`，未納入本 backlog——待後續排程時再挑入。
